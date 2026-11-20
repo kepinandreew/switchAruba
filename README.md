@@ -7,15 +7,30 @@
 </p>
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Universal-0f172a?style=flat-square&logo=apple&logoColor=white">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Universal%20(M1%2FM2%2FM3%2FIntel)-0f172a?style=flat-square&logo=apple&logoColor=white">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0f172a?style=flat-square&logo=windows&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.21-0ea5e9?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.30-0ea5e9?style=flat-square">
 </p>
 
 <p align="center">
   <a href="https://github.com/kepinandreew/switchAruba/releases"><b>Releases</b></a> ·
   <a href="https://github.com/kepinandreew/switchAruba/actions"><b>Builds (Actions)</b></a>
 </p>
+
+---
+
+## Installation
+
+### macOS (Apple Silicon M1 / M2 / M3 / M4 & Intel)
+1. Download **`MySwitch-*-macos-universal.zip`** from [**Releases**](https://github.com/kepinandreew/switchAruba/releases/latest), unzip it, and drag **`MySwitch.app`** to **`/Applications`**.
+2. Because the app is not notarized with a paid Apple Developer ID certificate, macOS Gatekeeper on Apple Silicon may show *"MySwitch is damaged and can't be opened"* or *"Apple could not verify MySwitch"*. Clear the browser quarantine flag once in **Terminal**:
+   ```bash
+   xattr -cr /Applications/MySwitch.app
+   ```
+3. Open **MySwitch** from Applications.
+
+### Windows 10 / 11 (64-bit)
+1. Download **`MySwitch-*-windows-x64.zip`** from [**Releases**](https://github.com/kepinandreew/switchAruba/releases/latest), unzip, and run **`MySwitch.exe`** (if SmartScreen appears, click **More info → Run anyway**).
 
 ---
 

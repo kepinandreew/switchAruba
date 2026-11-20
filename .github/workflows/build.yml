@@ -44,8 +44,10 @@ jobs:
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"
           elif [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"
-          else v=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go); [ -z "$v" ] && v="1.0.21"; fi
-          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+          else v=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go); [ -z "$v" ] && v="1.0.30"; fi
+          ver="${v#v}"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          sed -i.bak "s/\"productVersion\": *\"[^\"]*\"/\"productVersion\": \"$ver\"/" wails.json && rm -f wails.json.bak
       - name: Build
         shell: bash
         run: wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.Version=${{ steps.ver.outputs.version }}"
@@ -93,7 +95,7 @@ jobs:
           cat >> notes.md <<'EOF'
           ## Downloads
 
-          **macOS** (Apple Silicon and Intel): `MySwitch-*-macos-universal.zip`. Unzip and drag MySwitch to Applications. The app isn't notarized by Apple, so the first time right-click it and choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/MySwitch.app`.
+          **macOS** (Apple Silicon M1/M2/M3/M4 and Intel): `MySwitch-*-macos-universal.zip`. Unzip and drag `MySwitch.app` to `/Applications`. Because the app is ad-hoc signed without paid Apple notarization, macOS Gatekeeper on Apple Silicon may report *"MySwitch is damaged and can't be opened"* or *"Apple could not verify MySwitch"*; run `xattr -cr /Applications/MySwitch.app` once in Terminal, then open MySwitch normally.
 
           **Windows 10/11** (64-bit): `MySwitch-*-windows-x64.zip`. Unzip and run `MySwitch.exe`. SmartScreen may warn about an unknown publisher; choose **More info → Run anyway**.
 
