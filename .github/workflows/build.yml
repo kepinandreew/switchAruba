@@ -1,0 +1,103 @@
+﻿name: build
+
+on:
+  push:
+    branches: ["main", "master"]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 1.0.21 (leave empty to only build)"
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+          - os: windows-latest
+            platform: windows/amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # the exact version named by the toolchain line in go.mod, so Wails
+          # and the module build with the same Go
+          go-version-file: go.mod
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.2
+      - name: Test
+        run: |
+          go mod tidy
+          go test ./internal/...
+      - name: Work out version
+        id: ver
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version }}" ]; then v="${{ inputs.version }}"
+          else v=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go); [ -z "$v" ] && v="1.0.21"; fi
+          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+      - name: Build
+        shell: bash
+        run: wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.Version=${{ steps.ver.outputs.version }}"
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - build/bin/MySwitch.app
+          cd build/bin && ditto -c -k --keepParent MySwitch.app "MySwitch-${{ steps.ver.outputs.version }}-macos-universal.zip"
+      - name: Package Windows exe
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cd build/bin && 7z a "MySwitch-${{ steps.ver.outputs.version }}-windows-x64.zip" MySwitch.exe
+      - name: Attest build provenance
+        if: (github.ref_type == 'tag' || inputs.version != '') && !github.event.repository.private
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            build/bin/*.zip
+            build/bin/MySwitch.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MySwitch-${{ runner.os }}
+          path: build/bin/*.zip
+
+  release:
+    needs: build
+    if: github.ref_type == 'tag' || inputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/changelog.md
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then tag="$GITHUB_REF_NAME"; else v="${{ inputs.version }}"; tag="v${v#v}"; fi
+          # this version's section of the changelog goes first
+          awk -v v="## ${tag#v}" '$0==v{on=1;next} on&&/^## [0-9]/{exit} on' "$GITHUB_WORKSPACE/docs/changelog.md" > notes.md || true
+          cat >> notes.md <<'EOF'
+          ## Downloads
+
+          **macOS** (Apple Silicon and Intel): `MySwitch-*-macos-universal.zip`. Unzip and drag MySwitch to Applications. The app isn't notarized by Apple, so the first time right-click it and choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/MySwitch.app`.
+
+          **Windows 10/11** (64-bit): `MySwitch-*-windows-x64.zip`. Unzip and run `MySwitch.exe`. SmartScreen may warn about an unknown publisher; choose **More info → Run anyway**.
+
+          Data from an earlier version is picked up automatically.
+          EOF
+          (cd dist && sha256sum *.zip > SHA256SUMS.txt)
+          gh release create "$tag" dist/*.zip dist/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "MySwitch ${tag#v}" --notes-file notes.md

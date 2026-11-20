@@ -1,0 +1,18 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "MySwitch",
+  "outputfilename": "MySwitch",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "author": {
+    "name": "Vinz"
+  },
+  "info": {
+    "companyName": "MySwitch",
+    "productName": "MySwitch",
+    "productVersion": "1.0.21",
+    "copyright": "MySwitch",
+    "comments": "Aruba switch manager."
+  }
+}

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 220" width="860" height="220">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080d19"/>
+      <stop offset="55%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111f38"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="accentLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="860" height="220" rx="18" fill="url(#bg)" stroke="#1e2d42" stroke-width="2"/>
+  <rect x="30" y="188" width="800" height="4" rx="2" fill="url(#accentLine)" opacity="0.85"/>
+  <g transform="translate(64, 48)">
+    <rect width="96" height="96" rx="22" fill="url(#badge)"/>
+    <rect x="16" y="20" width="64" height="24" rx="6" fill="none" stroke="#ffffff" stroke-width="4"/>
+    <rect x="16" y="52" width="64" height="24" rx="6" fill="none" stroke="#ffffff" stroke-width="4"/>
+    <circle cx="28" cy="32" r="3.5" fill="#ffffff"/>
+    <circle cx="40" cy="32" r="3.5" fill="#ffffff"/>
+    <line x1="52" y1="32" x2="68" y2="32" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="28" cy="64" r="3.5" fill="#ffffff"/>
+    <circle cx="40" cy="64" r="3.5" fill="#ffffff"/>
+    <line x1="52" y1="64" x2="68" y2="64" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <text x="190" y="96" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="46" font-weight="700" fill="#f8fafc" letter-spacing="0.5">MySwitch</text>
+  <rect x="422" y="66" width="126" height="26" rx="13" fill="#0c243c" stroke="#38bdf8" stroke-width="1.2"/>
+  <text x="485" y="83" text-anchor="middle" font-family="ui-monospace, Consolas, monospace" font-size="11.5" font-weight="700" fill="#38bdf8" letter-spacing="1.5">ARUBA NOC</text>
+  <text x="190" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" fill="#94a3b8">Aruba Switch Network Operations &amp; VLAN Management Suite</text>
+</svg>

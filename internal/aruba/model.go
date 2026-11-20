@@ -1,0 +1,235 @@
+package aruba
+
+import "time"
+
+type Family string
+
+const (
+	FamilyAuto      Family = "auto"
+	FamilyAOSS      Family = "aos-s"
+	FamilyAOSCX     Family = "aos-cx"
+	FamilyInstantOn Family = "instant-on"
+)
+
+func (f Family) Label() string {
+	switch f {
+	case FamilyAOSS:
+		return "AOS-S"
+	case FamilyAOSCX:
+		return "AOS-CX"
+	case FamilyInstantOn:
+		return "Instant On"
+	}
+	return "Unknown"
+}
+
+type Facts struct {
+	Hostname    string `json:"hostname"`
+	Model       string `json:"model"`
+	Serial      string `json:"serial"`
+	BaseMAC     string `json:"baseMac"`
+	Software    string `json:"software"`
+	Uptime      string `json:"uptime"`
+	CPU         int    `json:"cpu"`                  // percent (prefers 1-min rolling avg when available), -1 unknown
+	CPU1m       *int   `json:"cpu1m,omitempty"`      // 1-minute rolling average CPU %
+	CPU5m       *int   `json:"cpu5m,omitempty"`      // 5-minute (or 300s) rolling average CPU %
+	CPUInstant  *int   `json:"cpuInstant,omitempty"` // instantaneous CLI snapshot CPU %
+	Memory      int    `json:"memory"`               // percent used, -1 unknown
+	Location    string `json:"location"`
+	Contact     string `json:"contact"`
+	ConfigSaved *bool   `json:"configSaved,omitempty"`
+	BootROM     string  `json:"bootRom,omitempty"`    // AOS-S ROM version, AOS-CX ServiceOS version
+	PowerUsedW  float64 `json:"powerUsedW,omitempty"` // total switch/PoE power draw parsed from PSU status
+	PowerMaxW   float64 `json:"powerMaxW,omitempty"`  // total switch PSU wattage capacity
+}
+
+type STPPort struct {
+	Port  string `json:"port"`
+	Role  string `json:"role"`
+	State string `json:"state"`
+	Cost  string `json:"cost"`
+}
+
+type STP struct {
+	Enabled         bool      `json:"enabled"`
+	Known           bool      `json:"known"`
+	Mode            string    `json:"mode"`
+	BridgePriority  string    `json:"bridgePriority"`
+	BridgeMAC       string    `json:"bridgeMac"`
+	RootPriority    string    `json:"rootPriority"`
+	RootMAC         string    `json:"rootMac"`
+	RootPort        string    `json:"rootPort"`
+	IsRoot          bool      `json:"isRoot"`
+	TopologyChanges int       `json:"topologyChanges"`
+	LastChange      string    `json:"lastChange"`
+	Ports           []STPPort `json:"ports"`
+}
+
+type Security struct {
+	SSHEnabled      bool     `json:"sshEnabled"`
+	SSHVersion      string   `json:"sshVersion"`
+	SSHPort         string   `json:"sshPort"`
+	TelnetEnabled   bool     `json:"telnetEnabled"`
+	HTTPPlain       bool     `json:"httpPlain"`
+	HTTPSEnabled    bool     `json:"httpsEnabled"`
+	SNMPCommunities []string `json:"snmpCommunities"`
+	SNMPDefault     bool     `json:"snmpDefault"`
+	NTPServers      []string `json:"ntpServers"`
+	LogServers      []string `json:"logServers"`
+	AAA             []string `json:"aaa"`
+	ManagerPassword bool     `json:"managerPassword"`
+	Timezone        string   `json:"timezone"` // "" when the switch runs on UTC with no time zone set
+	// the algorithms the SSH server offers, from "show ip ssh" / "show ssh server"
+	SSHCiphers []string `json:"sshCiphers,omitempty"`
+	SSHMACs    []string `json:"sshMacs,omitempty"`
+	SSHKex     []string `json:"sshKex,omitempty"`
+	// What MySwitch saw when it tried the ports itself: "open", "closed",
+	// "filtered" or "" when not checked. These override the config guess.
+	TelnetPort string `json:"telnetPort"`
+	HTTPPort   string `json:"httpPort"`
+}
+
+type VLAN struct {
+	ID              int      `json:"id"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"`
+	Tagged          []string `json:"tagged"`
+	Untagged        []string `json:"untagged"`
+	IP              string   `json:"ip"`
+	IGMPSnooping    bool     `json:"igmpSnooping,omitempty"`
+	IGMPQuerier     bool     `json:"igmpQuerier,omitempty"`
+	IGMPConfigKnown bool     `json:"igmpKnown,omitempty"`
+}
+
+type Port struct {
+	Name        string `json:"name"`
+	Enabled     bool   `json:"enabled"`
+	Up          bool   `json:"up"`
+	Speed       string `json:"speed"`
+	Mode        string `json:"mode"`
+	VLAN        string `json:"vlan"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	Trunk       string `json:"trunk,omitempty"` // AOS-S trunk the port belongs to, e.g. Trk3
+	Cage        string `json:"cage,omitempty"`  // "sfp" when the model's hardware has an SFP cage here
+	QoSTrust    string `json:"qosTrust,omitempty"` // per-port QoS trust mode ("dscp", "cos", "none") on AOS-CX
+	EEEOff      bool   `json:"eeeOff,omitempty"`   // true when "no energy-efficient-ethernet" is set in config
+	EEEOn       bool   `json:"eeeOn,omitempty"`    // true when "energy-efficient-ethernet" is explicitly enabled in config
+	// filled from the Instant On portal
+	PoEmW  int  `json:"poeMw,omitempty"`
+	PoEOff bool `json:"poeOff,omitempty"`
+	Loop   bool `json:"loop,omitempty"`
+	Uplink bool `json:"uplink,omitempty"`
+}
+
+type Neighbor struct {
+	Protocol     string `json:"protocol"` // lldp or cdp
+	LocalPort    string `json:"localPort"`
+	SysName      string `json:"sysName"`
+	ChassisID    string `json:"chassisId"`
+	PortID       string `json:"portId"`
+	PortDescr    string `json:"portDescr"`
+	MgmtIP       string `json:"mgmtIp"`
+	Description  string `json:"description"`
+	Capabilities string `json:"capabilities"`
+}
+
+type EnvItem struct {
+	Kind   string `json:"kind"` // fan, psu, temp
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	OK     bool   `json:"ok"`
+}
+
+type LogLine struct {
+	Severity string `json:"severity"` // I W M E D
+	Text     string `json:"text"`
+}
+
+// Snapshot is everything collected from one switch in one SSH pass.
+type Snapshot struct {
+	Family        Family            `json:"family"`
+	Facts         Facts             `json:"facts"`
+	STP           STP               `json:"stp"`
+	Security      Security          `json:"security"`
+	VLANs         []VLAN            `json:"vlans"`
+	Ports         []Port            `json:"ports"`
+	Neighbors     []Neighbor        `json:"neighbors"`
+	Env           []EnvItem         `json:"env"`
+	Logs          []LogLine         `json:"logs"`
+	Raw           map[string]string `json:"raw"`
+	RunningConfig string            `json:"runningConfig"`
+	CollectedAt   time.Time         `json:"collectedAt"`
+	Duration      string            `json:"duration"`
+	Errors        []string          `json:"errors"`
+	Banks         Banks             `json:"banks"`
+	Cloud         *CloudInfo        `json:"cloud,omitempty"` // Instant On switches read from the portal
+	// Notes are problems a driver found that the generic rules can't see,
+	// such as a wrong clock reported by the switch's web interface.
+	Notes  []Note  `json:"notes,omitempty"`
+	Optics []Optic `json:"optics,omitempty"` // transceivers with their optical levels
+	// PortAccess is 802.1X / MAC authentication read from the config; nil where MySwitch can't manage it.
+	PortAccess *PortAccess `json:"portAccess,omitempty"`
+	Web        bool        `json:"web,omitempty"`   // read through the switch's web interface
+	MACs       []MACEntry  `json:"macs,omitempty"`  // the switch's MAC address table
+	Stack      *Stack      `json:"stack,omitempty"` // AOS-S stacking or AOS-CX VSF, nil on a standalone switch
+	QoS        *QoSInfo    `json:"qos,omitempty"`   // QoS / Dante readiness parsed from running-config
+}
+
+// QoSInfo summarizes QoS & Dante-relevant settings read from running-config without extra SSH calls.
+type QoSInfo struct {
+	Known           bool   `json:"known,omitempty"`
+	GlobalTrust     string `json:"globalTrust,omitempty"`     // "dscp", "cos", "none" (AOS-CX) or "dscp" (AOS-S diff-services)
+	DSCP56Priority  int    `json:"dscp56Priority"`            // mapped priority for DSCP 56 (CS7/PTP), -1 if default/unset
+	DSCP46Priority  int    `json:"dscp46Priority"`            // mapped priority for DSCP 46 (EF/Audio), -1 if default/unset
+	ScheduleProfile string `json:"scheduleProfile,omitempty"` // AOS-CX applied global schedule profile name
+	StrictTopQueues bool   `json:"strictTopQueues,omitempty"` // true when strict priority serves highest queues (or AOS-S default)
+	GlobalEEEOff    bool   `json:"globalEeeOff,omitempty"`    // true if global "no energy-efficient-ethernet" is configured
+}
+
+// MACEntry is one learned address: where a client is plugged in.
+type MACEntry struct {
+	MAC  string `json:"mac"` // aa:bb:cc:dd:ee:ff
+	Port string `json:"port"`
+	VLAN string `json:"vlan"`
+}
+
+type StackMember struct {
+	ID     string `json:"id"`
+	MAC    string `json:"mac"`
+	Model  string `json:"model"`
+	Status string `json:"status"` // Commander, Standby, Member, Missing, ...
+	OK     bool   `json:"ok"`
+}
+
+type Stack struct {
+	Topology string        `json:"topology"` // Ring, Chain, ...
+	Status   string        `json:"status"`
+	Members  []StackMember `json:"members"`
+}
+
+type Note struct {
+	Severity string `json:"severity"` // critical, warning, info
+	Category string `json:"category"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+}
+
+// CloudInfo is what the Instant On portal adds for a switch it manages.
+type CloudInfo struct {
+	Site       string       `json:"site"`
+	Health     string       `json:"health"` // good, warning, critical, none
+	UpToDate   *bool        `json:"upToDate,omitempty"`
+	Firmware   string       `json:"firmware"`
+	Clients    int          `json:"clients"`
+	PoEUsedW   float64      `json:"poeUsedW"`
+	PoEBudgetW float64      `json:"poeBudgetW"`
+	Alerts     []CloudAlert `json:"alerts"`
+}
+
+type CloudAlert struct {
+	Severity string    `json:"severity"` // major, minor, info
+	Type     string    `json:"type"`
+	Text     string    `json:"text"`
+	Raised   time.Time `json:"raised"`
+}
