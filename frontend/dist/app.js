@@ -406,7 +406,7 @@ async function showRoute() {
   const [page, a, b, c] = S.route;
   const main = $("#main");
   // a switch opened from another page goes back there, scrolled where it was (#33)
-  S.scrollMem ||= {};
+  S.scrollMem = S.scrollMem || {};
   if (S.here) S.scrollMem[S.here] = main.scrollTop;
   if (page !== "switch") S.from = location.hash || "#/dashboard";
   S.here = location.hash;
@@ -2888,7 +2888,7 @@ function openPortAccessEditor() {
       clientLimit: num($("#palimit", m).value.trim()), reauthPeriod: num($("#pareauth", m).value),
       unauthVlan: cx ? null : num($("#paunauth", m).value), save: $("#pasave", m).checked, roles: null,
     };
-    for (const s of $$("select[data-role]", m)) if (s.value !== "__keep") (ch.roles ||= {})[s.dataset.role] = s.value;
+    for (const s of $$("select[data-role]", m)) if (s.value !== "__keep") { ch.roles = ch.roles || {}; ch.roles[s.dataset.role] = s.value; }
     if ([ch.dot1x, ch.macAuth, ch.clientLimit, ch.reauthPeriod, ch.unauthVlan, ch.roles].every((v) => v === null)) {
       $("#paerr", m).innerHTML = `<div class="msg err">Nothing changed.</div>`;
       return;
@@ -3831,7 +3831,7 @@ async function macPath(q) {
 async function renderVLANs(soft) {
   // only the selected site's switches: they're the ones the editors below may change
   const data = siteOnly(await call("VLANOverview"));
-  data.forEach((s) => { s.vlans ||= []; });
+  data.forEach((s) => { s.vlans = s.vlans || []; });
   S.vlanData = data;
   if (soft && (S.modalOpen || S.route[0] !== "vlans")) return;
   if (!data.length) {
@@ -4544,6 +4544,7 @@ async function boot() {
 }
 
 async function start() {
+  try { renderSide(); } catch {}
   // On a slow start (many switches, a busy computer) the backend can take a
   // few seconds to connect; wait up to 30 s and say so.
   for (let i = 0; i < 1000 && !window.go?.main?.App; i++) {
@@ -4558,7 +4559,9 @@ async function start() {
   // the language first, so even the lock screen is in it
   S.settings = await call("GetSettings").catch(() => ({}));
   applyLook(S.settings);
-  await I18N.use(S.settings.language || "", api).catch(() => {});
+  if (typeof I18N !== "undefined" && I18N?.use) {
+    await I18N.use(S.settings.language || "", api).catch(() => {});
+  }
   // optional app password: nothing is loaded before it's entered
   const lock = await call("AppLock").catch(() => null);
   if (lock?.locked) await showLock(lock);

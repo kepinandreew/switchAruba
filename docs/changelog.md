@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.31
+- **macOS Apple Silicon (M1/M2/M3/M4) & Safari/WKWebView Startup Fix**:
+  - Avoids the Wails macOS `WindowStartState: Maximised` + `TitleBarHiddenInset` initial WebKit layer race condition that could leave the macOS window blank on first launch.
+  - Replaced RegExp lookbehind (`(?<=...)`) and logical-assignment syntax in frontend scripts for full compatibility with older macOS `WKWebView` engines, and renders the shell/sidebar immediately while backend data loads.
+
 ## 1.0.30
 - **Auto MAC Vendor / OUI Detection (Offline, 0% SSH)**:
   - Embedded offline IEEE OUI hardware database (40,500+ prefixes) with specialized Pro-AV & networking brand labels (`Audinate (Dante)`, `Yamaha`, `Shure`, `QSC / Q-SYS`, `Allen & Heath`, `Biamp`, `Crestron`, `Extron`, `Blackmagic Design`, `NovaStar`, `MA Lighting`, `Focusrite`, `Sennheiser`, `Neutrik`, `HPE / Aruba`, `Hikvision`, `Dahua`, `Axis`, `Apple`, `Dell`, plus randomized/private MAC detection).

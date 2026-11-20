@@ -8,7 +8,8 @@
 // Anything without a translation stays in English.
 
 const I18N = (() => {
-  const base = new URL(".", document.currentScript?.src || location.href); // the folder this file is in
+  let base = location.href;
+  try { base = new URL(".", document.currentScript?.src || location.href); } catch {}
   let exact = new Map();
   let patterns = [];
   let cache = new Map();
@@ -61,9 +62,9 @@ const I18N = (() => {
     let out = cache.get(t);
     if (out === undefined) {
       out = exact.get(t) ?? matchPattern(t);
-      // a text glued together from several sentences: translate each one
+      // a text glued together from several sentences: translate each one (avoid RegExp lookbehind for older macOS Safari/WKWebView)
       if (out === null && /[.!?]\s+\S/.test(t)) {
-        const parts = t.split(/(?<=[.!?])\s+/);
+        const parts = (t.match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) || [t]).map((p) => p.trim()).filter(Boolean);
         let hit = false;
         const done = parts.map((p) => {
           const v = exact.get(p) ?? matchPattern(p);

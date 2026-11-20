@@ -8,6 +8,7 @@ package main
 import (
 	"embed"
 	"log"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,17 +21,21 @@ import (
 var assets embed.FS
 
 // Version is set at build time with -ldflags "-X main.Version=..."
-var Version = "1.0.30"
+var Version = "1.0.31"
 
 func main() {
 	app := NewApp()
+	startState := options.Normal
+	if runtime.GOOS != "darwin" {
+		startState = options.Maximised
+	}
 	err := wails.Run(&options.App{
 		Title:            "MySwitch",
 		Width:            1360,
 		Height:           860,
 		MinWidth:         1024,
 		MinHeight:        640,
-		WindowStartState: options.Maximised,
+		WindowStartState: startState,
 		BackgroundColour: &options.RGBA{R: 11, G: 17, B: 32, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
