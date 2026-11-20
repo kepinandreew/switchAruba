@@ -2,11 +2,18 @@ package core
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"myswitch/internal/aruba"
 	"myswitch/internal/store"
 )
+
+type TopoVLAN struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
 
 type Node struct {
 	ID       string   `json:"id"`
@@ -15,6 +22,9 @@ type Node struct {
 	Managed  bool     `json:"managed"`
 	Host     string   `json:"host"`
 	Model    string   `json:"model"`
+	MAC      string   `json:"mac,omitempty"`
+	Vendor   string   `json:"vendor,omitempty"`
+	VLANs    []int    `json:"vlans,omitempty"`
 	Online   bool     `json:"online"`
 	Disabled bool     `json:"disabled"`
 	Severity Severity `json:"severity"`
@@ -33,11 +43,14 @@ type Edge struct {
 	Protocols []string `json:"protocols"`
 	Blocking  bool     `json:"blocking"`
 	Up        bool     `json:"up"`
+	FromVLANs []int    `json:"fromVlans,omitempty"`
+	ToVLANs   []int    `json:"toVlans,omitempty"`
 }
 
 type Topology struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes []Node     `json:"nodes"`
+	Edges []Edge     `json:"edges"`
+	VLANs []TopoVLAN `json:"vlans,omitempty"`
 }
 
 type switchInfo struct {
@@ -51,6 +64,8 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 	idx := map[string]string{}           // match key -> node id
 	macs := map[string]map[string]bool{} // node id -> MACs that switch is known by
 	nodes := map[string]*Node{}
+	vlanCounts := map[int]int{}
+	vlanNames := map[int]map[string]int{}
 	for _, in := range infos {
 		n := &Node{ID: in.sw.ID, Label: displayName(in.sw, in.snap), Kind: "switch", Managed: true, Host: in.sw.Host, Online: in.online, Disabled: in.sw.Disabled}
 		idx["ip:"+in.sw.Host] = in.sw.ID
@@ -69,6 +84,22 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 					macs[in.sw.ID][mac] = true
 				}
 			}
+			seenV := map[int]bool{}
+			for _, v := range in.snap.VLANs {
+				if v.ID <= 0 || seenV[v.ID] {
+					continue
+				}
+				seenV[v.ID] = true
+				n.VLANs = append(n.VLANs, v.ID)
+				vlanCounts[v.ID]++
+				if name := strings.TrimSpace(v.Name); name != "" {
+					if vlanNames[v.ID] == nil {
+						vlanNames[v.ID] = map[string]int{}
+					}
+					vlanNames[v.ID][name]++
+				}
+			}
+			sort.Ints(n.VLANs)
 		}
 		if n.Label != "" {
 			idx["name:"+strings.ToLower(n.Label)] = in.sw.ID
@@ -191,12 +222,27 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 				if !showEndpoints && (kind == "phone" || kind == "host") {
 					continue
 				}
-				if _, ok := nodes[to]; !ok {
+				mac := aruba.NormMAC(nb.ChassisID)
+				if mac == "" {
+					mac = aruba.NormMAC(nb.SysName)
+				}
+				vendor := aruba.LookupVendor(mac)
+				if ex, ok := nodes[to]; !ok {
 					label := nb.SysName
 					if label == "" {
 						label = nb.MgmtIP
 					}
-					nodes[to] = &Node{ID: to, Label: label, Kind: kind, Host: nb.MgmtIP, Model: shorten(nb.Description), Online: true}
+					if label == "" {
+						label = mac
+					}
+					nodes[to] = &Node{ID: to, Label: label, Kind: kind, Host: nb.MgmtIP, Model: shorten(nb.Description), MAC: mac, Vendor: vendor, Online: true}
+				} else {
+					if ex.MAC == "" && mac != "" {
+						ex.MAC = mac
+					}
+					if ex.Vendor == "" && vendor != "" {
+						ex.Vendor = vendor
+					}
 				}
 			}
 			remotePort := nb.PortID
@@ -265,10 +311,49 @@ func buildTopology(infos []switchInfo, layout map[string]store.Point, showEndpoi
 	}
 	sort.Slice(t.Nodes, func(i, j int) bool { return t.Nodes[i].ID < t.Nodes[j].ID })
 	for _, e := range edges {
+		if in, ok := byID[e.From]; ok && in.snap != nil {
+			e.FromVLANs = vlansOnEdgePort(in.snap, e.FromPort)
+		}
+		if in, ok := byID[e.To]; ok && in.snap != nil {
+			e.ToVLANs = vlansOnEdgePort(in.snap, e.ToPort)
+		}
 		t.Edges = append(t.Edges, *e)
 	}
 	sort.Slice(t.Edges, func(i, j int) bool { return t.Edges[i].ID < t.Edges[j].ID })
+	for vid, cnt := range vlanCounts {
+		bestName, bestCount := "", 0
+		for nm, c := range vlanNames[vid] {
+			if c > bestCount || (c == bestCount && (bestName == "" || nm < bestName)) {
+				bestName, bestCount = nm, c
+			}
+		}
+		t.VLANs = append(t.VLANs, TopoVLAN{ID: vid, Name: bestName, Count: cnt})
+	}
+	sort.Slice(t.VLANs, func(i, j int) bool { return t.VLANs[i].ID < t.VLANs[j].ID })
 	return t
+}
+
+func vlansOnEdgePort(snap *aruba.Snapshot, portName string) []int {
+	if snap == nil || portName == "" {
+		return nil
+	}
+	m := vlansOnUplinkPort(snap, portName)
+	for _, p := range snap.Ports {
+		if p.Name == portName && p.VLAN != "" {
+			if vid, err := strconv.Atoi(strings.TrimSpace(p.VLAN)); err == nil && vid > 0 {
+				m[vid] = true
+			}
+		}
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(m))
+	for vid := range m {
+		out = append(out, vid)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func classify(nb aruba.Neighbor) string {

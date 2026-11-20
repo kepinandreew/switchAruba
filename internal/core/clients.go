@@ -18,6 +18,7 @@ type MACHit struct {
 	PortName   string `json:"portName,omitempty"`
 	VLAN       string `json:"vlan"`
 	MAC        string `json:"mac"`
+	Vendor     string `json:"vendor,omitempty"`
 	// Uplink names the switch seen through this port over LLDP/CDP, or the
 	// trunk it belongs to; "" means this is the edge port.
 	Uplink string `json:"uplink,omitempty"`
@@ -121,7 +122,11 @@ func (m *Manager) macHits(match func(bare string) bool, limit int) []MACHit {
 			if !match(strings.ReplaceAll(e.MAC, ":", "")) {
 				continue
 			}
-			h := MACHit{SwitchID: in.sw.ID, SwitchName: names[in.sw.ID], Port: e.Port, PortName: portName[e.Port], VLAN: e.VLAN, MAC: e.MAC, Others: perPort[e.Port] - 1}
+			v := e.Vendor
+			if v == "" {
+				v = aruba.LookupVendor(e.MAC)
+			}
+			h := MACHit{SwitchID: in.sw.ID, SwitchName: names[in.sw.ID], Port: e.Port, PortName: portName[e.Port], VLAN: e.VLAN, MAC: e.MAC, Vendor: v, Others: perPort[e.Port] - 1}
 			if up := linked[in.sw.ID+"\x00"+e.Port]; up != "" {
 				h.Uplink = up
 			} else if up := neighborSwitch[e.Port]; up != "" {

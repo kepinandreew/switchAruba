@@ -787,6 +787,25 @@ func (m *Manager) Detail(id string) (Detail, error) {
 				}
 				snap = &full
 			}
+			if snap != nil && len(snap.MACs) > 0 {
+				needVendor := false
+				for _, me := range snap.MACs {
+					if me.Vendor == "" {
+						needVendor = true
+						break
+					}
+				}
+				if needVendor {
+					full := *snap
+					full.MACs = append([]aruba.MACEntry(nil), snap.MACs...)
+					for i := range full.MACs {
+						if full.MACs[i].Vendor == "" {
+							full.MACs[i].Vendor = aruba.LookupVendor(full.MACs[i].MAC)
+						}
+					}
+					snap = &full
+				}
+			}
 			return Detail{SwitchView: v, Snapshot: snap, Backups: backups}, nil
 		}
 	}

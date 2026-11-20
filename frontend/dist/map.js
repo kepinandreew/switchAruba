@@ -10,6 +10,7 @@ const SDMap = (() => {
   let drag = null, saveTimer = 0, ro = null, firstFit = true, pendingFit = false;
   let liveTraffic = true, traffic = { edges: {}, nodes: {} };
   let keepTimer = 0, pollTimer = 0, lastAnimTs = 0, hasFlow = false;
+  let highlightVlan = 0;
 
   const DPR = () => window.devicePixelRatio || 1;
   const C = {
@@ -24,11 +25,79 @@ const SDMap = (() => {
     warn: "#f59e0b",
     info: "#38bdf8",
     accent: "#38bdf8",
+    vlan: "#22d3ee",
     tx: "#38bdf8",
     rx: "#34d399",
   };
   const SW = { w: 176, h: 46 };
   const LEAF_R = 12;
+
+  function looksLikeMAC(s) {
+    if (!s) return false;
+    const t = s.trim();
+    return /^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(t) ||
+      /^([0-9a-f]{4}\.){2}[0-9a-f]{4}$/i.test(t) ||
+      /^[0-9a-f]{6}-[0-9a-f]{6}$/i.test(t);
+  }
+
+  function edgeVlanState(e, a, b, vid) {
+    if (!vid || !e || !a || !b) return null;
+    const onA = Array.isArray(e.fromVlans) && e.fromVlans.includes(vid);
+    const onB = Array.isArray(e.toVlans) && e.toVlans.includes(vid);
+    const isBackbone = !!(a.managed && b.managed);
+    if (isBackbone) {
+      const hasA = Array.isArray(a.vlans) && a.vlans.includes(vid);
+      const hasB = Array.isArray(b.vlans) && b.vlans.includes(vid);
+      if (!e.up) return (onA || onB || (hasA && hasB)) ? "down" : "dim";
+      if (onA && onB) return e.blocking ? "blocking" : "active";
+      if (onA !== onB) return "mismatch";
+      if (hasA && hasB) return "untagged";
+      return "dim";
+    }
+    const managedOn = a.managed ? onA : b.managed ? onB : false;
+    if (!managedOn) return "dim";
+    if (!e.up) return "down";
+    if (e.blocking) return "blocking";
+    return "leaf-active";
+  }
+
+  function computeVlanOverlay(vid) {
+    const activeNodes = new Set();
+    const edgeStates = new Map();
+    const stats = { switches: 0, endpoints: 0, activeTrunks: 0, mismatches: 0, blocking: 0, down: 0, untagged: 0 };
+    if (!vid) return null;
+    for (const n of nodes.values()) {
+      if (n.managed && Array.isArray(n.vlans) && n.vlans.includes(vid)) {
+        activeNodes.add(n.id);
+        stats.switches++;
+      }
+    }
+    for (const e of topo.edges) {
+      const a = nodes.get(e.from), b = nodes.get(e.to);
+      if (!a || !b) continue;
+      const st = edgeVlanState(e, a, b, vid) || "dim";
+      edgeStates.set(e.id, st);
+      if (st === "active") stats.activeTrunks++;
+      else if (st === "mismatch") { stats.mismatches++; activeNodes.add(a.id); activeNodes.add(b.id); }
+      else if (st === "blocking") { stats.blocking++; activeNodes.add(a.id); activeNodes.add(b.id); }
+      else if (st === "down") { stats.down++; activeNodes.add(a.id); activeNodes.add(b.id); }
+      else if (st === "untagged") stats.untagged++;
+      else if (st === "leaf-active") {
+        const leaf = a.managed ? b : a;
+        if (!activeNodes.has(leaf.id)) { activeNodes.add(leaf.id); stats.endpoints++; }
+      }
+    }
+    return { activeNodes, edgeStates, stats };
+  }
+
+  function setHighlightVlan(vid) {
+    highlightVlan = Number(vid) > 0 ? Number(vid) : 0;
+    const vo = highlightVlan ? computeVlanOverlay(highlightVlan) : null;
+    if (opts?.onVlanChange) opts.onVlanChange(highlightVlan, vo ? vo.stats : null, topo);
+    if (selected && opts?.select) opts.select(nodes.get(selected), topo, traffic);
+    draw(performance.now());
+    return vo ? vo.stats : null;
+  }
 
   function loadTrafficPref() {
     try {
@@ -137,6 +206,14 @@ const SDMap = (() => {
     if (selected && !nodes.has(selected)) selected = null;
     const managed = topo.nodes.filter((n) => n.managed).length;
     opts.status(`${managed} switches, ${topo.nodes.length - managed} other devices, ${topo.edges.length} links`);
+    if (highlightVlan > 0 && !(topo.vlans || []).some((v) => v.id === highlightVlan)) {
+      highlightVlan = 0;
+    }
+    if (opts?.onTopo) opts.onTopo(topo, highlightVlan);
+    if (highlightVlan > 0 && opts?.onVlanChange) {
+      const vo = computeVlanOverlay(highlightVlan);
+      opts.onVlanChange(highlightVlan, vo ? vo.stats : null, topo);
+    }
     refreshFlowFlag();
     if (firstFit && topo.nodes.length) { firstFit = false; fit(); }
     if (selected) opts.select(nodes.get(selected), topo, traffic);
@@ -535,6 +612,30 @@ const SDMap = (() => {
     }
   }
 
+  function measureStatusPill(text, tone) {
+    ctx.font = '600 9.5px "Plex Sans", sans-serif';
+    const w = ctx.measureText(text).width + 14;
+    return { kind: "vlan", text, tone, w, h: 17 };
+  }
+
+  function drawStatusPill(mx, my, m) {
+    const { text, tone, w, h } = m;
+    const bg = tone === "crit" ? "rgba(56,12,24,.95)" : tone === "warn" ? "rgba(52,32,8,.95)" : "rgba(10,32,48,.95)";
+    const br = tone === "crit" ? "rgba(244,63,94,.85)" : tone === "warn" ? "rgba(245,158,11,.85)" : "rgba(34,211,238,.75)";
+    const fg = tone === "crit" ? "#fda4af" : tone === "warn" ? "#fcd34d" : "#67e8f9";
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = br;
+    ctx.lineWidth = 1.1 / Math.max(0.7, Math.min(1.2, view.k));
+    rr(mx - w / 2, my - h / 2, w, h, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = '600 9.5px "Plex Sans", sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = fg;
+    ctx.fillText(text, mx, my + 0.5);
+  }
+
   function draw(ts) {
     if (!ctx) return;
     lastAnimTs = ts || performance.now();
@@ -560,6 +661,7 @@ const SDMap = (() => {
       pairCount.set(key, (pairCount.get(key) || 0) + 1);
     }
     const focus = selected || hover;
+    const vo = highlightVlan > 0 ? computeVlanOverlay(highlightVlan) : null;
 
     // 1) Draw edges & flow particles behind node boxes
     topo.edges.forEach((e, idx) => {
@@ -576,25 +678,112 @@ const SDMap = (() => {
       const hl = !!(focus && (e.from === focus || e.to === focus));
       const lt = traffic.edges?.[e.id];
       const active = !!(liveTraffic && e.up && !e.blocking && lt && lt.live && (lt.tx > 100 || lt.rx > 100));
+      const vst = vo ? (vo.edgeStates.get(e.id) || "dim") : null;
+      const kScale = Math.min(1, view.k + 0.2) / Math.max(0.6, view.k);
 
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.quadraticCurveTo(cx, cy, b.x, b.y);
-      ctx.lineWidth = ((hl || (active && isBackbone) ? 2.2 : isBackbone ? 1.7 : 1.1) / Math.max(0.6, view.k)) * Math.min(1, view.k + 0.2);
-      ctx.setLineDash(e.blocking ? [7, 5] : []);
-      if (!e.up) ctx.strokeStyle = C.crit;
-      else if (e.blocking) ctx.strokeStyle = C.warn;
-      else if (lt?.util >= 80 && active) ctx.strokeStyle = "rgba(244,63,94,.72)";
-      else if (lt?.util >= 50 && active) ctx.strokeStyle = "rgba(245,158,11,.72)";
-      else if (hl) ctx.strokeStyle = C.accent;
-      else if (active && isBackbone) ctx.strokeStyle = "rgba(56,189,248,.48)";
-      else if (!isBackbone) ctx.strokeStyle = "rgba(93,112,136,.42)";
-      else ctx.strokeStyle = C.line;
-      ctx.stroke();
-      ctx.setLineDash([]);
+      if (vst) {
+        if (vst === "active" || vst === "leaf-active") {
+          // Soft outer cyan glow for active VLAN path
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = (vst === "active" ? 7.5 : 4.8) * kScale;
+          ctx.strokeStyle = vst === "active" ? "rgba(34,211,238,.22)" : "rgba(34,211,238,.14)";
+          ctx.stroke();
 
-      // Animate dots prominently on backbone/external uplinks or focused leaf edges
-      if (active && (isBackbone || hl || view.k >= 0.85)) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = (vst === "active" ? 2.8 : 1.8) * kScale;
+          ctx.strokeStyle = C.vlan;
+          ctx.stroke();
+        } else if (vst === "mismatch") {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 7 * kScale;
+          ctx.strokeStyle = "rgba(244,63,94,.20)";
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 2.8 * kScale;
+          ctx.setLineDash([8, 5]);
+          ctx.strokeStyle = C.crit;
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          badgeCandidates.push({ a, b, cx, cy, measured: measureStatusPill("⚠ 1-side tag", "crit"), priority: 9e15 });
+        } else if (vst === "blocking") {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 6.5 * kScale;
+          ctx.strokeStyle = "rgba(245,158,11,.20)";
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 2.6 * kScale;
+          ctx.setLineDash([7, 5]);
+          ctx.strokeStyle = C.warn;
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          badgeCandidates.push({ a, b, cx, cy, measured: measureStatusPill("STP BLK", "warn"), priority: 8e15 });
+        } else if (vst === "down") {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 2.8 * kScale;
+          ctx.strokeStyle = C.crit;
+          ctx.stroke();
+
+          badgeCandidates.push({ a, b, cx, cy, measured: measureStatusPill("LINK DOWN", "crit"), priority: 8.5e15 });
+        } else if (vst === "untagged") {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 1.6 * kScale;
+          ctx.setLineDash([4, 5]);
+          ctx.strokeStyle = "rgba(245,158,11,.48)";
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          if (hl || view.k >= 0.75) {
+            badgeCandidates.push({ a, b, cx, cy, measured: measureStatusPill("Not tagged", "warn"), priority: 5e15 });
+          }
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+          ctx.lineWidth = 0.9 * kScale;
+          ctx.strokeStyle = "rgba(93,112,136,.12)";
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+        ctx.lineWidth = (hl || (active && isBackbone) ? 2.2 : isBackbone ? 1.7 : 1.1) * kScale;
+        ctx.setLineDash(e.blocking ? [7, 5] : []);
+        if (!e.up) ctx.strokeStyle = C.crit;
+        else if (e.blocking) ctx.strokeStyle = C.warn;
+        else if (lt?.util >= 80 && active) ctx.strokeStyle = "rgba(244,63,94,.72)";
+        else if (lt?.util >= 50 && active) ctx.strokeStyle = "rgba(245,158,11,.72)";
+        else if (hl) ctx.strokeStyle = C.accent;
+        else if (active && isBackbone) ctx.strokeStyle = "rgba(56,189,248,.48)";
+        else if (!isBackbone) ctx.strokeStyle = "rgba(93,112,136,.42)";
+        else ctx.strokeStyle = C.line;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Animate dots prominently on backbone/external uplinks or focused leaf edges (dimmed VLAN edges stay quiet)
+      const allowFlow = !vst || vst === "active" || vst === "leaf-active";
+      if (allowFlow && active && (isBackbone || hl || view.k >= 0.85)) {
         const seed = ((idx * 37) % 100) / 100;
         const subtle = !isBackbone && !hl;
         drawFlowDots(a.x, a.y, cx, cy, b.x, b.y, lt.tx, false, nowSec, seed, C.tx, subtle);
@@ -602,7 +791,7 @@ const SDMap = (() => {
       }
 
       // Queue traffic pills: backbone links + focused links always; leaf links only when focused or zoomed in
-      const showPill = liveTraffic && lt && lt.live && (lt.tx + lt.rx >= 1000 || hl) && (hl || (isBackbone && view.k >= 0.42) || view.k >= 1.15);
+      const showPill = allowFlow && liveTraffic && lt && lt.live && (lt.tx + lt.rx >= 1000 || hl) && (hl || (isBackbone && view.k >= 0.42) || view.k >= 1.15);
       if (showPill) {
         const measured = measureRatePill(lt, hl);
         if (measured) {
@@ -613,15 +802,19 @@ const SDMap = (() => {
         }
       }
 
-      if (view.k > 1.5 || hl) {
-        portLabels.push([e.fromPort, a, cx, cy], [e.toPort, b, cx, cy]);
+      if (view.k > 1.5 || hl || vst === "mismatch" || vst === "blocking" || vst === "down") {
+        if (!vst || vst !== "dim" || hl) {
+          portLabels.push([e.fromPort, a, cx, cy], [e.toPort, b, cx, cy]);
+        }
       }
     });
 
     // 2) Draw nodes cleanly over edges & particles
     const obstacles = [];
     for (const n of nodes.values()) {
-      (n.managed ? drawSwitch : drawDevice)(n);
+      const vActive = !!(vo && vo.activeNodes.has(n.id));
+      const vDim = !!(vo && !vActive);
+      (n.managed ? drawSwitch : drawDevice)(n, vDim, vActive);
       obstacles.push(n.managed
         ? { x: n.x - SW.w / 2 - 4, y: n.y - SW.h / 2 - 4, w: SW.w + 8, h: SW.h + 8 }
         : { x: n.x - 16, y: n.y - 16, w: 32, h: 42 });
@@ -630,7 +823,7 @@ const SDMap = (() => {
     // 3) Draw port labels when hovered/focused/zoomed
     for (const l of portLabels) label(...l);
 
-    // 4) Draw rate pills without overlapping any switch box or higher-priority pill
+    // 4) Draw status & rate pills without overlapping any switch box or higher-priority pill
     badgeCandidates.sort((p, q) => q.priority - p.priority);
     const placedPills = [];
     const tryTs = [0.5, 0.64, 0.36, 0.74, 0.26, 0.82, 0.18];
@@ -643,7 +836,8 @@ const SDMap = (() => {
         const hitsPill = placedPills.some((o) => rectsOverlap(rect, o, 5));
         if (!hitsNode && !hitsPill) {
           placedPills.push(rect);
-          drawMeasuredPill(mx, my, measured);
+          if (measured.kind === "vlan") drawStatusPill(mx, my, measured);
+          else drawMeasuredPill(mx, my, measured);
           break;
         }
       }
@@ -667,14 +861,24 @@ const SDMap = (() => {
     ctx.fillText(text, x, y + 0.5);
   }
 
-  function drawSwitch(n) {
+  function drawSwitch(n, vDim, vActive) {
     const w = SW.w, h = SW.h, x = n.x - w / 2, y = n.y - h / 2;
     const sel = selected === n.id, hov = hover === n.id;
     const nt = traffic.nodes?.[n.id];
 
+    ctx.save();
+    if (vDim) ctx.globalAlpha = 0.2;
+
+    if (vActive) {
+      ctx.strokeStyle = "rgba(34,211,238,.24)";
+      ctx.lineWidth = 6;
+      rr(x - 1, y - 1, w + 2, h + 2, 9);
+      ctx.stroke();
+    }
+
     ctx.fillStyle = sel ? "#1e2e46" : hov ? C.panel2 : C.panel;
-    ctx.strokeStyle = sel ? C.accent : n.disabled || n.online ? C.border : C.crit;
-    ctx.lineWidth = sel ? 2 : 1.25;
+    ctx.strokeStyle = sel ? C.accent : vActive ? C.vlan : n.disabled || n.online ? C.border : C.crit;
+    ctx.lineWidth = sel || vActive ? 2 : 1.25;
     rr(x, y, w, h, 8);
     ctx.fill();
     ctx.stroke();
@@ -722,31 +926,52 @@ const SDMap = (() => {
       ctx.textAlign = "center";
       ctx.fillText("STP root", n.x, y - 10);
     }
+    ctx.restore();
   }
 
   const KIND = { "external-switch": ["#7b8db0", "S"], router: ["#b08ad8", "R"], ap: ["#5bc2d6", "AP"], phone: ["#9aa5b8", "P"], host: ["#9aa5b8", "H"] };
 
-  function drawDevice(n) {
+  function drawDevice(n, vDim, vActive) {
     const [col, glyph] = KIND[n.kind] || KIND.host;
     const r = n.kind === "phone" || n.kind === "host" ? 10 : 13;
     const sel = selected === n.id;
+
+    ctx.save();
+    if (vDim) ctx.globalAlpha = 0.2;
+
+    if (vActive) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r + 3.5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(34,211,238,.38)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
     ctx.beginPath();
     ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
     ctx.fillStyle = sel ? "#1e2e46" : "#111827";
     ctx.fill();
-    ctx.lineWidth = sel ? 2 : 1.5;
-    ctx.strokeStyle = sel ? C.accent : col;
+    ctx.lineWidth = sel || vActive ? 2 : 1.5;
+    ctx.strokeStyle = sel ? C.accent : vActive ? C.vlan : col;
     ctx.stroke();
-    ctx.fillStyle = col;
+    ctx.fillStyle = vActive ? C.vlan : col;
     ctx.font = `600 ${glyph.length > 1 ? 8.5 : 10}px "Plex Sans", sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(glyph, n.x, n.y + 0.5);
-    if (view.k > 0.58 || selected === n.id || hover === n.id) {
-      ctx.fillStyle = C.muted;
-      ctx.font = '400 10px "Plex Sans", sans-serif';
-      ctx.fillText(clip(n.label, 76), n.x, n.y + r + 10);
+    if (view.k > 0.58 || selected === n.id || hover === n.id || vActive) {
+      const macOnly = !n.label || looksLikeMAC(n.label);
+      const mainText = (macOnly && n.vendor) ? n.vendor : (n.label || n.vendor || n.mac || "");
+      ctx.fillStyle = vActive ? C.text : C.muted;
+      ctx.font = (macOnly && n.vendor ? '500' : '400') + ' 10px "Plex Sans", sans-serif';
+      ctx.fillText(clip(mainText, 88), n.x, n.y + r + 10);
+      if (n.vendor && !macOnly && (view.k > 1.05 || sel || hover === n.id) && !mainText.toLowerCase().includes(n.vendor.toLowerCase())) {
+        ctx.fillStyle = "rgba(148,163,184,.72)";
+        ctx.font = '400 8.5px "Plex Sans", sans-serif';
+        ctx.fillText(clip(n.vendor, 86), n.x, n.y + r + 21);
+      }
     }
+    ctx.restore();
   }
 
   function clip(t, max) {
@@ -868,6 +1093,7 @@ const SDMap = (() => {
     start(canvas, o) {
       cv = canvas; opts = o; ctx = cv.getContext("2d"); running = true; firstFit = true;
       liveTraffic = loadTrafficPref();
+      highlightVlan = Number(o?.highlightVlan) > 0 ? Number(o.highlightVlan) : 0;
       cv.addEventListener("pointerdown", onDown);
       cv.addEventListener("pointermove", onMove);
       cv.addEventListener("pointerup", onUp);
@@ -891,6 +1117,9 @@ const SDMap = (() => {
       ro = null;
     },
     reload, fit, relayout, toggleTraffic,
+    setHighlightVlan,
+    getHighlightVlan: () => highlightVlan,
+    edgeVlanState,
     isTrafficOn: () => liveTraffic,
   };
 })();

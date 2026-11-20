@@ -297,6 +297,7 @@ export namespace aruba {
 	    mac: string;
 	    port: string;
 	    vlan: string;
+	    vendor?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new MACEntry(source);
@@ -307,6 +308,7 @@ export namespace aruba {
 	        this.mac = source["mac"];
 	        this.port = source["port"];
 	        this.vlan = source["vlan"];
+	        this.vendor = source["vendor"];
 	    }
 	}
 	export class Neighbor {
@@ -1098,6 +1100,7 @@ export namespace core {
 	    portName?: string;
 	    vlan: string;
 	    mac: string;
+	    vendor?: string;
 	    uplink?: string;
 	    edge: boolean;
 	    others: number;
@@ -1115,6 +1118,7 @@ export namespace core {
 	        this.portName = source["portName"];
 	        this.vlan = source["vlan"];
 	        this.mac = source["mac"];
+	        this.vendor = source["vendor"];
 	        this.uplink = source["uplink"];
 	        this.edge = source["edge"];
 	        this.others = source["others"];
@@ -1772,6 +1776,8 @@ export namespace core {
 	    protocols: string[];
 	    blocking: boolean;
 	    up: boolean;
+	    fromVlans?: number[];
+	    toVlans?: number[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Edge(source);
@@ -1787,6 +1793,8 @@ export namespace core {
 	        this.protocols = source["protocols"];
 	        this.blocking = source["blocking"];
 	        this.up = source["up"];
+	        this.fromVlans = source["fromVlans"];
+	        this.toVlans = source["toVlans"];
 	    }
 	}
 	
@@ -1819,6 +1827,7 @@ export namespace core {
 	    portName?: string;
 	    vlan: string;
 	    mac: string;
+	    vendor?: string;
 	    uplink?: string;
 	    edge: boolean;
 	    others: number;
@@ -1835,6 +1844,7 @@ export namespace core {
 	        this.portName = source["portName"];
 	        this.vlan = source["vlan"];
 	        this.mac = source["mac"];
+	        this.vendor = source["vendor"];
 	        this.uplink = source["uplink"];
 	        this.edge = source["edge"];
 	        this.others = source["others"];
@@ -2026,6 +2036,9 @@ export namespace core {
 	    managed: boolean;
 	    host: string;
 	    model: string;
+	    mac?: string;
+	    vendor?: string;
+	    vlans?: number[];
 	    online: boolean;
 	    disabled: boolean;
 	    severity: string;
@@ -2046,6 +2059,9 @@ export namespace core {
 	        this.managed = source["managed"];
 	        this.host = source["host"];
 	        this.model = source["model"];
+	        this.mac = source["mac"];
+	        this.vendor = source["vendor"];
+	        this.vlans = source["vlans"];
 	        this.online = source["online"];
 	        this.disabled = source["disabled"];
 	        this.severity = source["severity"];
@@ -2102,9 +2118,26 @@ export namespace core {
 		}
 	}
 	
+	export class TopoVLAN {
+	    id: number;
+	    name: string;
+	    count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TopoVLAN(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.count = source["count"];
+	    }
+	}
 	export class Topology {
 	    nodes: Node[];
 	    edges: Edge[];
+	    vlans?: TopoVLAN[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Topology(source);
@@ -2114,6 +2147,7 @@ export namespace core {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.nodes = this.convertValues(source["nodes"], Node);
 	        this.edges = this.convertValues(source["edges"], Edge);
+	        this.vlans = this.convertValues(source["vlans"], TopoVLAN);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

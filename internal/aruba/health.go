@@ -197,7 +197,8 @@ func ParseMACTable(out string) []MACEntry {
 		if len(fs) == 0 {
 			continue
 		}
-		e := MACEntry{MAC: NormMAC(m[1])}
+		mac := NormMAC(m[1])
+		e := MACEntry{MAC: mac, Vendor: LookupVendor(mac)}
 		if len(fs) >= 3 && isNumber(fs[0]) && !isNumber(fs[1]) {
 			// AOS-CX: VLAN, type, port
 			e.VLAN, e.Port = fs[0], fs[len(fs)-1]

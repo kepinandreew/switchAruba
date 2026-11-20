@@ -1352,7 +1352,7 @@ function tabPorts(snap) {
 
   return `<div class="ledclick">${ledPanel(snap)}</div>${selBar}${opticsPanel(snap)}<section class="panel">
     <h2 id="ptools">Ports<span class="grow"></span>
-      <input type="search" class="psearch" placeholder="Search port, name, MAC…" value="${esc(f.q)}" oninput="S.pf.q=this.value;portRows()">
+      <input type="search" class="psearch" placeholder="Search port, name, MAC, vendor…" value="${esc(f.q)}" oninput="S.pf.q=this.value;portRows()">
       <select onchange="S.pf.status=this.value;portRows()"><option value="">Any status</option>${["Up", "Down", "Disabled"].map((v) => `<option ${f.status === v ? "selected" : ""}>${v}</option>`).join("")}</select>
       <select onchange="S.pf.speed=this.value;portRows()"><option value="">Any speed</option>${speeds.map((v) => `<option ${f.speed === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
       <button class="btn small" onclick="exportSwitchPortsCSV()" title="Export ports of this switch to CSV">${ICON.download}CSV</button>
@@ -1366,9 +1366,18 @@ function tabPorts(snap) {
 // a disabled port is down too; say which, so a shut port isn't taken for a dead link
 const portState = (x) => (!x.enabled ? ["x", "Disabled", ""] : x.up ? ["u", "Up", "ok"] : ["", "Down", "faint"]);
 
+const PROAV_VENDOR_RE = /audinate|dante|yamaha|shure|qsc|q-sys|allen\s*&?\s*heath|audiotonix|biamp|crestron|extron|blackmagic|novastar|ma lighting|focusrite|sennheiser|neutrik|solid state logic|digico|behringer|midas|l-acoustics|d&b|meyer sound|clear-com|riedel|ross video|newtek|vizrt|birddog|kiloview|ptzoptics/i;
+function vendorChip(v, compact) {
+  if (!v) return "";
+  const cls = PROAV_VENDOR_RE.test(v) ? "vchip proav" : v === "Private / Randomized" ? "vchip priv" : "vchip";
+  return `<span class="${cls}"${compact ? ' style="font-size:10.5px;padding:0 5px"' : ""}>${esc(v)}</span>`;
+}
+
 function portMACs(snap) {
   const m = {};
-  for (const e of snap.macs || []) (m[e.port] = m[e.port] || []).push(e.mac);
+  for (const e of snap.macs || []) {
+    (m[e.port] = m[e.port] || []).push({ mac: e.mac, vendor: e.vendor || "" });
+  }
   return m;
 }
 
@@ -1385,8 +1394,10 @@ function portRowsHTML(snap) {
     if (f.status && label !== f.status) return false;
     if (f.speed && x.speed !== f.speed) return false;
     if (!q) return true;
-    const hay = [x.name, x.description, label, x.speed, x.type, memb[x.name] || x.vlan, x.qosTrust ? "qos " + x.qosTrust : ""].join(" ").toLowerCase();
-    return qwords.every((w) => hay.includes(w)) || (qmac.length >= 4 && (macs[x.name] || []).some((m) => m.replace(/:/g, "").includes(qmac)));
+    const ms = macs[x.name] || [];
+    const vendors = ms.map((m) => m.vendor).filter(Boolean).join(" ");
+    const hay = [x.name, x.description, label, x.speed, x.type, memb[x.name] || x.vlan, x.qosTrust ? "qos " + x.qosTrust : "", vendors].join(" ").toLowerCase();
+    return qwords.every((w) => hay.includes(w)) || (qmac.length >= 4 && ms.some((m) => m.mac.replace(/:/g, "").includes(qmac)));
   });
   if (!rows.length) return `<tr><td colspan="9" class="faint" style="text-align:center;padding:18px">No port matches</td></tr>`;
   return rows.map((x) => {
@@ -1396,9 +1407,15 @@ function portRowsHTML(snap) {
     const name = canEdit
       ? `<td class="pname" title="${x.description ? "Click to copy, double-click to rename" : "Click to rename"}" data-port="${esc(x.name)}" onclick="portNameClick(this)" ondblclick="clearTimeout(S.clk);openPortNames(this.dataset.port)">${esc(x.description)}</td>`
       : `<td class="pname" title="Click to copy" onclick="if(this.textContent)copyText(this.textContent)">${esc(x.description)}</td>`;
-    const mac = !ms.length ? "" : ms.length === 1
-      ? `<a class="mono" onclick="macMenu(this,'${ms[0]}')">${esc(ms[0])}</a>`
-      : `<a onclick="macList(this,'${esc(x.name)}')">${ms.length} MACs</a>`;
+    let mac = "";
+    if (ms.length === 1) {
+      mac = `<a class="mono" onclick="macMenu(this,'${ms[0].mac}')">${esc(ms[0].mac)}</a>${ms[0].vendor ? `<div style="margin-top:2px">${vendorChip(ms[0].vendor, true)}</div>` : ""}`;
+    } else if (ms.length > 1) {
+      const uniqV = [...new Set(ms.map((m) => m.vendor).filter(Boolean))];
+      const matchedV = q ? uniqV.find((v) => qwords.some((w) => v.toLowerCase().includes(w))) : "";
+      const showV = matchedV || (uniqV.length === 1 ? uniqV[0] : "");
+      mac = `<a onclick="macList(this,'${esc(x.name)}')">${ms.length} MACs</a>${showV ? `<div style="margin-top:2px">${vendorChip(showV, true)}</div>` : ""}`;
+    }
     const poeBadge = x.poeOff ? ` <span class="tag" style="color:var(--warn);border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.12)" title="PoE disabled on this port">PoE Off</span>` : x.poeMw ? ` <span class="tag" style="color:var(--up)">${(x.poeMw / 1000).toFixed(1)}W</span>` : "";
     const qosBadge = x.qosTrust ? ` <span class="tag" style="${x.qosTrust === "dscp" ? "color:#38bdf8;border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.12)" : ""}" title="QoS trust ${esc(x.qosTrust)} active on this port">QoS: ${esc(x.qosTrust.toUpperCase())}</span>` : "";
     const eeeBadge = x.eeeOn ? ` <span class="tag" style="color:var(--warn);border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.12)" title="Energy-Efficient Ethernet enabled (not recommended for Dante)">EEE On</span>` : "";
@@ -1427,15 +1444,19 @@ function exportSwitchPortsCSV() {
     if (f.status && label !== f.status) return false;
     if (f.speed && x.speed !== f.speed) return false;
     if (!q) return true;
-    const hay = [x.name, x.description, label, x.speed, x.type, memb[x.name] || x.vlan, x.qosTrust ? "qos " + x.qosTrust : ""].join(" ").toLowerCase();
-    return qwords.every((w) => hay.includes(w)) || (qmac.length >= 4 && (macs[x.name] || []).some((m) => m.replace(/:/g, "").includes(qmac)));
+    const ms = macs[x.name] || [];
+    const vendors = ms.map((m) => m.vendor).filter(Boolean).join(" ");
+    const hay = [x.name, x.description, label, x.speed, x.type, memb[x.name] || x.vlan, x.qosTrust ? "qos " + x.qosTrust : "", vendors].join(" ").toLowerCase();
+    return qwords.every((w) => hay.includes(w)) || (qmac.length >= 4 && ms.some((m) => m.mac.replace(/:/g, "").includes(qmac)));
   });
-  const headers = ["Port", "Trunk", "Description", "Status", "Speed", "Type", "VLANs", "QoS Trust", "PoE", "EEE", "MACs"];
+  const headers = ["Port", "Trunk", "Description", "Status", "Speed", "Type", "VLANs", "QoS Trust", "PoE", "EEE", "MACs", "Vendors"];
   const data = rows.map((x) => {
     const [, label] = portState(x);
     const poe = x.poeOff ? "Disabled" : x.poeMw ? `${(x.poeMw / 1000).toFixed(1)}W` : "";
     const eee = x.eeeOff ? "Off" : x.eeeOn ? "On" : "";
-    return [x.name, x.trunk || "", x.description || "", label, x.speed || "", x.type || "", memb[x.name] || x.vlan || "", x.qosTrust || "", poe, eee, (macs[x.name] || []).join("; ")];
+    const ms = macs[x.name] || [];
+    const uniqV = [...new Set(ms.map((m) => m.vendor).filter(Boolean))];
+    return [x.name, x.trunk || "", x.description || "", label, x.speed || "", x.type || "", memb[x.name] || x.vlan || "", x.qosTrust || "", poe, eee, ms.map((m) => m.mac).join("; "), uniqV.join("; ")];
   });
   const swName = csvSlug(snap.facts?.hostname || d.name || d.host);
   exportCSV(`ports-${swName}-${csvDateStamp()}.csv`, headers, data);
@@ -1486,7 +1507,7 @@ function macMenu(anchor, mac) {
 function macList(anchor, port) {
   const ms = portMACs(S.detail.snapshot)[port] || [];
   const menu = popMenu(anchor, `<div class="faint" style="font-size:12px;padding:4px 8px 6px">${ms.length} MACs on port ${esc(port)}</div><div style="max-height:300px;overflow:auto">` +
-    ms.map((m) => `<div class="menuitem mono" data-mac="${esc(m)}">${esc(m)}</div>`).join("") + "</div>");
+    ms.map((m) => `<div class="menuitem" data-mac="${esc(m.mac)}"><span class="mono">${esc(m.mac)}</span>${m.vendor ? `<span style="margin-left:10px">${vendorChip(m.vendor, true)}</span>` : ""}</div>`).join("") + "</div>");
   menu.addEventListener("click", (e) => { const it = e.target.closest("[data-mac]"); if (it) { e.stopPropagation(); macMenu(anchor, it.dataset.mac); } });
 }
 
@@ -3250,6 +3271,8 @@ async function openBulkModal() {
 }
 
 // ---------- network map ----------
+const MAP_LEGEND_DEFAULT = `<span><i style="border-color:#5d7088"></i>Link</span><span><i style="border-color:var(--warn);border-top-style:dashed"></i>STP blocking</span><span><i style="border-color:var(--crit)"></i>Port down</span><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;margin-right:4px"></span>Tx / <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#34d399;margin:0 4px"></span>Rx live flow</span><span>Hover/klik switch untuk detail</span>`;
+
 function toggleMapTraffic(btn) {
   const on = SDMap.toggleTraffic();
   if (btn) {
@@ -3258,24 +3281,79 @@ function toggleMapTraffic(btn) {
   }
 }
 
+function setMapVLAN(val) {
+  S.mapVlan = Number(val) > 0 ? Number(val) : 0;
+  const sel = $("#mapvlan");
+  if (sel) sel.classList.toggle("active", S.mapVlan > 0);
+  SDMap.setHighlightVlan(S.mapVlan);
+}
+
+function updateMapVlanSelect(topo, activeVid) {
+  const sel = $("#mapvlan");
+  if (!sel) return;
+  const vlans = topo?.vlans || [];
+  sel.innerHTML = `<option value="0">Highlight VLAN: Off</option>` +
+    vlans.map((v) => `<option value="${v.id}"${v.id === activeVid ? " selected" : ""}>VLAN ${v.id}${v.name ? " — " + esc(v.name) : ""} (${v.count})</option>`).join("");
+  sel.value = String(activeVid || 0);
+  sel.classList.toggle("active", activeVid > 0);
+}
+
+function updateMapVlanUI(vid, stats, topo) {
+  const leg = $("#maplegend");
+  const st = $("#mapstat");
+  if (!vid || !stats) {
+    if (leg) leg.innerHTML = MAP_LEGEND_DEFAULT;
+    if (st && S.mapBaseStat) st.textContent = S.mapBaseStat;
+    return;
+  }
+  const info = (topo?.vlans || []).find((v) => v.id === vid);
+  const vTitle = `VLAN ${vid}${info?.name ? " (" + info.name + ")" : ""}`;
+  if (leg) {
+    leg.innerHTML = `<span><i style="border-color:#22d3ee;border-top-width:3px"></i>${esc(vTitle)} OK</span>` +
+      `<span><i style="border-color:var(--crit);border-top-style:dashed;border-top-width:3px"></i>1-side tag (lupa tag)</span>` +
+      `<span><i style="border-color:var(--warn);border-top-style:dashed;border-top-width:3px"></i>STP blocking</span>` +
+      `<span><i style="border-color:var(--crit);border-top-width:3px"></i>Port down</span>` +
+      `<span><i style="border-color:rgba(245,158,11,.6);border-top-style:dotted"></i>Not tagged</span>`;
+  }
+  if (st) {
+    const parts = [`${vTitle}: ${stats.switches} switch`, `${stats.activeTrunks} trunk aktif`];
+    if (stats.mismatches) parts.push(`⚠ ${stats.mismatches} 1-side tag`);
+    if (stats.blocking) parts.push(`${stats.blocking} STP blk`);
+    if (stats.down) parts.push(`${stats.down} down`);
+    if (stats.untagged) parts.push(`${stats.untagged} untagged trunk`);
+    st.textContent = parts.join(" · ");
+  }
+}
+
 function renderMap() {
   const tfOn = swPref("ms-map-traffic", true) !== false;
   $("#main").innerHTML = `<div class="page full"><div class="mapwrap">
     <canvas id="map"></canvas>
     <div class="maptools"><h1>Network map</h1>${siteSub()}
+      <select class="mapvlan${S.mapVlan ? " active" : ""}" id="mapvlan" onchange="setMapVLAN(this.value)" title="Highlight jalur VLAN di seluruh switch & kabel trunk"><option value="0">Highlight VLAN: Off</option></select>
       <button class="btn small" onclick="SDMap.fit()">Fit to window</button>
       <button class="btn small" onclick="SDMap.relayout()">Arrange again</button>
       <button class="btn small${tfOn ? " primary" : ""}" id="maptf" onclick="toggleMapTraffic(this)" title="Tampilkan animasi aliran & bitrate traffic live antar-switch">${ICON.activity}<span>${tfOn ? "Live traffic: ON" : "Live traffic: OFF"}</span></button>
       <label class="check btn small"><input type="checkbox" ${S.showEndpoints ? "checked" : ""} onchange="S.showEndpoints=this.checked;SDMap.reload()"> Phones and hosts</label>
       <span id="maphidden">${mapHiddenBtn()}</span>
       <span style="flex:1"></span><span class="faint" id="mapstat" style="font-size:13px"></span></div>
-    <div class="maplegend"><span><i style="border-color:#5d7088"></i>Link</span><span><i style="border-color:var(--warn);border-top-style:dashed"></i>STP blocking</span><span><i style="border-color:var(--crit)"></i>Port down</span><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8;margin-right:4px"></span>Tx / <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#34d399;margin:0 4px"></span>Rx live flow</span><span>Hover/klik switch untuk detail</span></div>
+    <div class="maplegend" id="maplegend">${MAP_LEGEND_DEFAULT}</div>
     <div class="panel mapcard" id="mapcard" style="display:none"></div></div></div>`;
   SDMap.start($("#map"), {
+    highlightVlan: S.mapVlan || 0,
     load: async () => siteTopo(S.mapAll = await call("GetTopology", S.showEndpoints)),
     loadTraffic: async () => call("GetMapTelemetry", S.showEndpoints),
     keepLive: (on) => call("MonitorLive", on ? 10 : 0).catch(() => {}),
     onTraffic: (n, topo, tf) => { if (n) showMapCard(n, topo, tf); },
+    onTopo: (topo, curVid) => {
+      S.mapVlan = curVid || 0;
+      updateMapVlanSelect(topo, S.mapVlan);
+      if (!S.mapVlan) updateMapVlanUI(0, null, topo);
+    },
+    onVlanChange: (vid, stats, topo) => {
+      S.mapVlan = vid || 0;
+      updateMapVlanUI(vid, stats, topo);
+    },
     // the map only saves what it shows, so positions of other sites' nodes are added back
     saveLayout: (l) => {
       const shown = new Set(siteTopo(S.mapAll).nodes.map((n) => n.id)), keep = {};
@@ -3283,7 +3361,7 @@ function renderMap() {
       return call("SaveLayout", { ...keep, ...l });
     },
     select: showMapCard,
-    status: (t) => { const el = $("#mapstat"); if (el) el.textContent = t; },
+    status: (t) => { S.mapBaseStat = t; const el = $("#mapstat"); if (el && !S.mapVlan) el.textContent = t; },
   });
 }
 
@@ -3356,7 +3434,7 @@ function siteTopo(t) {
     const gone = new Set(t.nodes.filter((n) => n.id in hidden || (!n.managed && kinds.has(n.kind))).map((n) => n.id));
     t = { ...t, nodes: t.nodes.filter((n) => !gone.has(n.id)), edges: t.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to)) };
   }
-  if (!S.site || !t) return t || { nodes: [], edges: [] };
+  if (!S.site || !t) return t || { nodes: [], edges: [], vlans: [] };
   const mine = new Set(siteDash().switches.map((v) => v.id));
   const keep = new Set(mine);
   for (const e of t.edges) {
@@ -3366,7 +3444,15 @@ function siteTopo(t) {
   // another site's switch seen over a link isn't drawn; its link goes too
   const byId = new Map(t.nodes.map((n) => [n.id, n]));
   for (const id of [...keep]) if (byId.get(id)?.managed && !mine.has(id)) keep.delete(id);
-  return { ...t, nodes: t.nodes.filter((n) => keep.has(n.id)), edges: t.edges.filter((e) => keep.has(e.from) && keep.has(e.to)) };
+  const keptNodes = t.nodes.filter((n) => keep.has(n.id));
+  const keptEdges = t.edges.filter((e) => keep.has(e.from) && keep.has(e.to));
+  const vCount = new Map();
+  for (const n of keptNodes) {
+    if (!n.managed) continue;
+    for (const vid of n.vlans || []) vCount.set(vid, (vCount.get(vid) || 0) + 1);
+  }
+  const vlans = (t.vlans || []).filter((v) => vCount.has(v.id)).map((v) => ({ ...v, count: vCount.get(v.id) }));
+  return { ...t, nodes: keptNodes, edges: keptEdges, vlans };
 }
 
 function showMapCard(n, topo, tf) {
@@ -3375,6 +3461,7 @@ function showMapCard(n, topo, tf) {
   if (!n) { c.style.display = "none"; return; }
   const bps = (v) => (typeof fmtBps === "function" ? fmtBps(v) : Math.round(v || 0) + " bps");
   const nt = tf?.nodes?.[n.id];
+  const hv = typeof SDMap !== "undefined" && SDMap.getHighlightVlan ? SDMap.getHighlightVlan() : 0;
   const links = topo.edges.filter((e) => e.from === n.id || e.to === n.id).map((e) => {
     const isFrom = e.from === n.id;
     const mine = isFrom ? e.fromPort : e.toPort, other = isFrom ? e.to : e.from, theirs = isFrom ? e.toPort : e.fromPort;
@@ -3385,15 +3472,36 @@ function showMapCard(n, topo, tf) {
       const outB = isFrom ? lt.tx : lt.rx, inB = isFrom ? lt.rx : lt.tx;
       rate = `<div class="mono" style="font-size:11px;margin-top:2px"><span style="color:#38bdf8">↑${bps(outB)}</span> <span style="color:#34d399">↓${bps(inB)}</span>${lt.util >= 1 ? ` <span class="faint">(${Math.round(lt.util)}%)</span>` : ""}</div>`;
     }
-    return `<tr><td class="mono">${esc(mine)}</td><td>${esc(on?.label || other)}${rate}</td><td class="mono">${esc(theirs)}</td></tr>`;
+    let vline = "";
+    if (hv > 0 && SDMap.edgeVlanState) {
+      const a = topo.nodes.find((x) => x.id === e.from), b = topo.nodes.find((x) => x.id === e.to);
+      const vst = SDMap.edgeVlanState(e, a, b, hv);
+      if (vst === "active" || vst === "leaf-active") {
+        vline = `<div style="font-size:11px;margin-top:2px;color:#22d3ee">● VLAN ${hv} aktif</div>`;
+      } else if (vst === "mismatch") {
+        const onA = (e.fromVlans || []).includes(hv);
+        const miss = onA ? `${b?.label || e.to} (${e.toPort})` : `${a?.label || e.from} (${e.fromPort})`;
+        vline = `<div style="font-size:11px;margin-top:2px;color:var(--crit)">⚠ VLAN ${hv} lupa di-tag di ${esc(miss)}</div>`;
+      } else if (vst === "blocking") {
+        vline = `<div style="font-size:11px;margin-top:2px;color:var(--warn)">⚠ VLAN ${hv} diblokir STP</div>`;
+      } else if (vst === "down") {
+        vline = `<div style="font-size:11px;margin-top:2px;color:var(--crit)">✕ Link down (VLAN ${hv})</div>`;
+      } else if (vst === "untagged") {
+        vline = `<div style="font-size:11px;margin-top:2px;color:var(--warn)">○ VLAN ${hv} belum di-tag di trunk</div>`;
+      }
+    }
+    const peerLabel = on?.label || on?.vendor || other;
+    return `<tr><td class="mono">${esc(mine)}</td><td>${esc(peerLabel)}${!on?.managed && on?.vendor && peerLabel !== on.vendor ? ` <span class="faint" style="font-size:11px">(${esc(on.vendor)})</span>` : ""}${vline}${rate}</td><td class="mono">${esc(theirs)}</td></tr>`;
   });
   const liveLine = nt?.live ? `<div style="margin-top:4px;font-size:12px">${nt.cpu >= 0 ? `<span title="${esc(cpuTip(nt))}">CPU <b>${nt.cpu}%</b>${nt.cpu5m != null ? ` <span class="faint">(5m ${nt.cpu5m}%)</span>` : ""}</span> ` : ""}${nt.memory >= 0 ? `<span class="faint">· Mem ${nt.memory}%</span> ` : ""}${nt.hasTraffic ? `<span style="color:#34d399">· ↓${bps(nt.rx)}</span> <span style="color:#38bdf8">↑${bps(nt.tx)}</span>` : ""}</div>` : "";
+  const vendorLine = !n.managed && n.vendor ? `<div style="margin-top:4px">${vendorChip(n.vendor)}</div>` : "";
+  const macLine = !n.managed && n.mac && n.mac !== n.label ? `<div class="mono faint" style="font-size:11.5px;margin-top:2px">MAC ${esc(n.mac)}</div>` : "";
   c.style.display = "block";
-  c.innerHTML = `<h3>${esc(n.label)}</h3><div class="muted" style="font-size:13px;margin-bottom:10px">${n.managed ? (n.online ? `<span class="ok">Online</span>` : `<span class="bad">Offline</span>`) + " " : ""}<span class="mono">${esc(n.host)}</span>${n.model ? "<br>" + esc(n.model) : ""}${n.stpRoot ? "<br>Spanning-tree root" : ""}${liveLine}</div>
+  c.innerHTML = `<h3>${esc(n.label || n.vendor || n.mac || n.id)}</h3><div class="muted" style="font-size:13px;margin-bottom:10px">${n.managed ? (n.online ? `<span class="ok">Online</span>` : `<span class="bad">Offline</span>`) + " " : ""}<span class="mono">${esc(n.host)}</span>${vendorLine}${macLine}${n.model ? "<br>" + esc(n.model) : ""}${n.stpRoot ? "<br>Spanning-tree root" : ""}${liveLine}</div>
     ${links.length ? `<table style="font-size:13px"><thead><tr><th style="padding:4px 6px">Port</th><th style="padding:4px 6px">To</th><th style="padding:4px 6px">Port</th></tr></thead><tbody>${links.join("").replaceAll("<td", '<td style="padding:4px 6px"')}</tbody></table>` : ""}
     ${n.managed ? "" : `<div class="faint" style="font-size:12.5px;margin-top:10px">Seen by LLDP/CDP, not in your inventory.</div>`}
     <div style="margin-top:12px;display:flex;gap:8px">${n.managed ? `<button class="btn small primary" data-go="#/switch/${n.id}">Open switch</button>` : ""}<button class="btn small" id="maphide" title="Leave this device off the map. Hidden devices can be shown again from the Hidden button.">Hide from map</button></div>`;
-  $("#maphide", c).onclick = () => hideOnMap(n.id, n.label, true);
+  $("#maphide", c).onclick = () => hideOnMap(n.id, n.label || n.vendor || n.mac || n.id, true);
 }
 
 // ---------- VLAN matrix ----------
@@ -3449,9 +3557,9 @@ async function openMany(ids, what) {
 async function renderClients() {
   $("#main").innerHTML = `<div class="page"><div class="head"><h1>Clients</h1>${siteSub()}<span class="grow"></span><button class="btn" id="clcsv" title="Export visible clients to CSV">${ICON.download}Export CSV</button></div>
     <div class="panel" style="padding:16px 18px">
-      <div class="ifilter"><span class="searchbox">${ICON.search}<input type="search" id="macq" placeholder="Filter by MAC address, switch, port or VLAN" value="${esc(S.macq || "")}" autofocus></span>
+      <div class="ifilter"><span class="searchbox">${ICON.search}<input type="search" id="macq" placeholder="Filter by MAC, vendor (e.g. audinate, yamaha, shure), switch, port or VLAN" value="${esc(S.macq || "")}" autofocus></span>
         <button class="btn" id="macgo">Find path</button></div>
-      <p class="faint" style="font-size:13px;margin:10px 0 0">Each device is listed once, at the port it's plugged into. Every switch on the way learns its address too: click an address, or type one and press Find path, to see them all.</p>
+      <p class="faint" style="font-size:13px;margin:10px 0 0">Each device is listed once with automatic offline MAC vendor detection. Click an address, or type one and press Find path, to see every switch that learned it.</p>
     </div>
     <div id="macpath"></div><div id="macres"><div class="panel"><div class="empty"><p>Reading the address tables…</p></div></div></div></div>`;
   let all = [];
@@ -3463,10 +3571,17 @@ async function renderClients() {
     const raw = $("#macq").value.trim();
     S.macq = raw;
     const q = raw.toLowerCase();
+    const qwords = q.split(/\s+/).filter(Boolean);
     const hex = q.replace(/[^0-9a-f]/g, "");
-    const hits = !q ? all : all.filter((h) =>
-      (hex.length >= 2 && h.mac.replace(/:/g, "").includes(hex)) ||
-      h.switchName.toLowerCase().includes(q) || h.port.toLowerCase() === q || (h.portName || "").toLowerCase().includes(q) || h.vlan === q);
+    const hits = !q ? all : all.filter((h) => {
+      if (qwords.length === 1 && hex.length >= 2 && h.mac.replace(/:/g, "").includes(hex)) return true;
+      const hay = [h.mac, h.mac.replace(/:/g, ""), h.vendor || "", h.switchName, h.port, h.portName || "", h.vlan || ""].join(" ").toLowerCase();
+      return qwords.every((w) => {
+        if (hay.includes(w)) return true;
+        const whex = w.replace(/[^0-9a-f]/g, "");
+        return whex.length >= 4 && /^[0-9a-f:.-]+$/i.test(w) && h.mac.replace(/:/g, "").includes(whex);
+      });
+    });
     lastHits = hits;
     if (!all.length) {
       $("#macres").innerHTML = `<div class="panel"><div class="empty"><h3>No addresses yet</h3><p>Address tables are read with every collection. Collect your switches once and the devices behind them show up here.</p></div></div>`;
@@ -3478,20 +3593,21 @@ async function renderClients() {
     }
     const rows = hits.slice(0, LIMIT).map((h) => `<tr class="${h.edge ? "edge" : ""}">
       <td class="mono"><a onclick="macPath('${h.mac}')">${esc(h.mac)}</a></td>
+      <td>${h.vendor ? vendorChip(h.vendor) : `<span class="faint">—</span>`}</td>
       <td><a data-go="#/switch/${h.switchId}/ports">${esc(h.switchName)}</a></td>
       <td class="mono">${esc(h.port)}${h.portName ? ` <span class="faint">${esc(h.portName)}</span>` : ""}</td>
       <td class="num">${esc(h.vlan || "")}</td>
       <td>${h.edge ? `<span class="ok">Edge port</span>${h.others ? ` <span class="faint">${h.others} more on this port</span>` : ""}` : `<span class="faint">Uplink to ${esc(h.uplink)}</span>`}</td>
       <td class="num faint">${h.seen > 1 ? h.seen : ""}</td></tr>`);
-    $("#macres").innerHTML = `<div class="panel"><table><thead><tr><th>MAC address</th><th>Switch</th><th>Port</th><th class="num">VLAN</th><th>Where</th><th class="num" title="Switches that learned this address">Seen on</th></tr></thead><tbody>${rows.join("")}</tbody></table>
+    $("#macres").innerHTML = `<div class="panel"><table><thead><tr><th>MAC address</th><th>Vendor</th><th>Switch</th><th>Port</th><th class="num">VLAN</th><th>Where</th><th class="num" title="Switches that learned this address">Seen on</th></tr></thead><tbody>${rows.join("")}</tbody></table>
       <div class="faint" style="padding:10px 16px;font-size:12.5px">${hits.length > LIMIT ? `Showing ${LIMIT} of ${hits.length} addresses. Type to narrow the list.` : `${hits.length} of ${all.length} addresses`}</div></div>`;
   };
   $("#macq").addEventListener("input", list);
   $("#macq").addEventListener("keydown", (e) => { if (e.key === "Enter") macPath($("#macq").value.trim()); });
   $("#macgo").onclick = () => macPath($("#macq").value.trim());
   $("#clcsv").onclick = () => {
-    const headers = ["MAC Address", "Switch", "Port", "Port Name", "VLAN", "Where", "Seen On Switches"];
-    const data = lastHits.map((h) => [h.mac, h.switchName, h.port, h.portName || "", h.vlan || "", h.edge ? "Edge port" : `Uplink to ${h.uplink || ""}`, h.seen || 1]);
+    const headers = ["MAC Address", "Vendor", "Switch", "Port", "Port Name", "VLAN", "Where", "Seen On Switches"];
+    const data = lastHits.map((h) => [h.mac, h.vendor || "", h.switchName, h.port, h.portName || "", h.vlan || "", h.edge ? "Edge port" : `Uplink to ${h.uplink || ""}`, h.seen || 1]);
     const suffix = S.site ? `-${csvSlug(siteLabel())}` : "";
     exportCSV(`clients${suffix}-${csvDateStamp()}.csv`, headers, data);
   };
@@ -3601,7 +3717,7 @@ function renderAllPorts() {
   const speeds = [...new Set(siteDash().switches.flatMap((v) => (v.summary?.ports || []).map((p) => p.speed)).filter(Boolean))].sort();
   $("#main").innerHTML = `<div class="page"><div class="head"><h1>Ports</h1>${siteSub()}<span class="grow"></span><button class="btn" onclick="exportAllPortsCSV()" title="Export visible ports to CSV">${ICON.download}Export CSV</button></div>
     <div class="panel" style="padding:14px 18px;margin-bottom:16px"><div class="ifilter">
-      <span class="searchbox">${ICON.search}<input type="search" id="apq" placeholder="Search port names, switches, ports, MAC, speed…" value="${esc(f.q)}" autofocus title="Switch, port, description, speed, or client MAC (e.g. aa:bb:cc or 9abc)"></span>
+      <span class="searchbox">${ICON.search}<input type="search" id="apq" placeholder="Search port, name, switch, MAC, vendor (e.g. audinate, yamaha), speed…" value="${esc(f.q)}" autofocus title="Switch, port, description, speed, vendor (e.g. audinate, yamaha, shure), or client MAC"></span>
       <select id="aps"><option value="">Any status</option>${["Up", "Down", "Disabled"].map((v) => `<option ${f.status === v ? "selected" : ""}>${v}</option>`).join("")}</select>
       <select id="apv"><option value="">Any speed</option>${speeds.map((v) => `<option ${f.speed === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></div>
       <p class="faint" style="font-size:13px;margin:10px 0 0">Every port of every switch, from the last time each switch was read. Click a switch to open its Ports tab.</p></div>
@@ -3610,6 +3726,16 @@ function renderAllPorts() {
   $("#aps").onchange = (e) => { f.status = e.target.value; allPortRows(); };
   $("#apv").onchange = (e) => { f.speed = e.target.value; allPortRows(); };
   allPortRows();
+  call("Clients").then((cls) => {
+    const m = new Map();
+    for (const h of cls || []) {
+      const k = `${h.switchId}::${h.port}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push({ mac: h.mac, vendor: h.vendor || "" });
+    }
+    S.portClientMap = m;
+    if (S.route[0] === "ports") allPortRows(true);
+  }).catch(() => {});
 }
 function allPortRows(noMacFetch) {
   const box = $("#apres");
@@ -3625,6 +3751,7 @@ function allPortRows(noMacFetch) {
       macBySP.get(k).push(h);
     }
   }
+  const clientMap = S.portClientMap || new Map();
   const all = [];
   for (const v of siteDash().switches) for (const p of v.summary?.ports || []) all.push([v, p]);
   const hits = all.filter(([v, p]) => {
@@ -3632,18 +3759,35 @@ function allPortRows(noMacFetch) {
     if (f.status && label !== f.status) return false;
     if (f.speed && p.speed !== f.speed) return false;
     if (!qwords.length) return true;
-    const hay = [v.name, v.summary?.hostname, v.host, p.name, p.description, label, p.speed, p.type, p.trunk].join(" ").toLowerCase();
-    const macs = macBySP.get(`${v.id}::${p.name}`);
+    const spKey = `${v.id}::${p.name}`;
+    const cls = clientMap.get(spKey) || [];
+    const clientHay = cls.map((c) => `${c.vendor} ${c.mac} ${c.mac.replace(/:/g, "")}`).join(" ");
+    const hay = [v.name, v.summary?.hostname, v.host, p.name, p.description, label, p.speed, p.type, p.trunk, clientHay].join(" ").toLowerCase();
+    const macs = macBySP.get(spKey);
     return qwords.every((w) => hay.includes(w) || (macs?.length && tok && w === tok.raw.toLowerCase()));
   });
   if (!all.length) { box.innerHTML = `<div class="panel"><div class="empty"><h3>No ports yet</h3><p>Ports show up here once switches have been read.</p></div></div>`; return; }
   box.innerHTML = `<div class="panel"><div class="fwscroll" style="max-height:calc(100vh - 290px)"><table><thead><tr><th>Switch</th><th>Port</th><th>Name</th><th>Status</th><th>Speed</th><th>Type</th></tr></thead><tbody>
     ${hits.slice(0, LIMIT).map(([v, p]) => {
       const [c, label, cls] = portState(p);
-      const macs = macBySP.get(`${v.id}::${p.name}`) || [];
-      const macTag = macs.length ? ` <span class="tag mono" style="margin-left:6px;color:var(--up);border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.1)" title="${esc(macs.map((m) => m.mac).join(', '))}">MAC ${esc(macs[0].mac)}${macs.length > 1 ? ` +${macs.length - 1}` : ""}</span>` : "";
+      const spKey = `${v.id}::${p.name}`;
+      const macs = macBySP.get(spKey) || [];
+      const clients = clientMap.get(spKey) || [];
+      let badge = "";
+      if (macs.length) {
+        const vTxt = macs[0].vendor ? ` · ${macs[0].vendor}` : "";
+        badge = ` <span class="tag mono" style="margin-left:6px;color:var(--up);border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.1)" title="${esc(macs.map((m) => m.mac + (m.vendor ? " (" + m.vendor + ")" : "")).join(", "))}">MAC ${esc(macs[0].mac)}${esc(vTxt)}${macs.length > 1 ? ` +${macs.length - 1}` : ""}</span>`;
+      } else if (clients.length) {
+        const uniqV = [...new Set(clients.map((x) => x.vendor).filter(Boolean))];
+        const matchedV = qwords.length ? uniqV.find((vn) => qwords.some((w) => vn.toLowerCase().includes(w))) : "";
+        const pickV = matchedV || (uniqV.length === 1 ? uniqV[0] : "");
+        if (pickV) {
+          const tip = clients.map((x) => x.mac + (x.vendor ? ` (${x.vendor})` : "")).join(", ");
+          badge = ` <span style="margin-left:6px" title="${esc(tip)}">${vendorChip(pickV, true)}${uniqV.length > 1 ? ` <span class="faint" style="font-size:11px">+${uniqV.length - 1}</span>` : ""}</span>`;
+        }
+      }
       return `<tr class="click" data-go="#/switch/${v.id}/ports/${encodeURIComponent(p.name)}"><td><a data-go="#/switch/${v.id}/ports/${encodeURIComponent(p.name)}">${esc(v.summary?.hostname || v.name || v.host)}</a></td><td class="mono">${esc(p.name)}${p.trunk ? ` <span class="faint">${esc(p.trunk)}</span>` : ""}</td>
-        <td class="pname">${p.description ? `<span class="nogo" title="Click to copy" onclick="event.stopPropagation();copyText(this.textContent)">${esc(p.description)}</span>` : ""}${macTag}</td>
+        <td class="pname">${p.description ? `<span class="nogo" title="Click to copy" onclick="event.stopPropagation();copyText(this.textContent)">${esc(p.description)}</span>` : ""}${badge}</td>
         <td class="${cls}"><span class="ledkey" style="color:inherit;font-size:inherit"><span><i class="${c}"></i>${label}</span></span></td><td>${esc(p.speed)}</td><td>${esc(p.type)}</td></tr>`;
     }).join("") || `<tr><td colspan="6" class="faint" style="text-align:center;padding:18px">No port matches</td></tr>`}</tbody></table></div>
     <div class="faint" style="padding:10px 16px;font-size:12.5px">${hits.length > LIMIT ? `Showing ${LIMIT} of ${hits.length} ports. Type to narrow the list.` : `${hits.length} of ${all.length} ports`}</div></div>`;
@@ -3651,10 +3795,13 @@ function allPortRows(noMacFetch) {
 }
 function exportAllPortsCSV() {
   const hits = S.apLastHits || [];
-  const headers = ["Switch", "Address", "Site", "Port", "Trunk", "Description", "Status", "Speed", "Type"];
+  const clientMap = S.portClientMap || new Map();
+  const headers = ["Switch", "Address", "Site", "Port", "Trunk", "Description", "Status", "Speed", "Type", "Vendors"];
   const data = hits.map(([v, p]) => {
     const [, label] = portState(p);
-    return [v.summary?.hostname || v.name || v.host, v.host, v.site || "", p.name, p.trunk || "", p.description || "", label, p.speed || "", p.type || ""];
+    const clients = clientMap.get(`${v.id}::${p.name}`) || [];
+    const vendors = [...new Set(clients.map((c) => c.vendor).filter(Boolean))].join("; ");
+    return [v.summary?.hostname || v.name || v.host, v.host, v.site || "", p.name, p.trunk || "", p.description || "", label, p.speed || "", p.type || "", vendors];
   });
   const suffix = S.site ? `-${csvSlug(siteLabel())}` : "";
   exportCSV(`ports${suffix}-${csvDateStamp()}.csv`, headers, data);
@@ -3671,12 +3818,13 @@ async function macPath(q) {
   if (!hits.length) { box.innerHTML = `<div class="panel"><div class="empty"><h3>Not found</h3><p>No switch has learned ${esc(q)}.</p></div></div>`; return; }
   const rows = hits.map((h) => `<tr class="${h.edge ? "edge" : ""}">
     <td class="mono">${esc(h.mac)}</td>
+    <td>${h.vendor ? vendorChip(h.vendor) : `<span class="faint">—</span>`}</td>
     <td><a data-go="#/switch/${h.switchId}/ports">${esc(h.switchName)}</a></td>
     <td class="mono">${esc(h.port)}${h.portName ? ` <span class="faint">${esc(h.portName)}</span>` : ""}</td>
     <td class="num">${esc(h.vlan || "")}</td>
     <td>${h.edge ? `<span class="ok">Edge port</span>${h.others ? ` <span class="faint">${h.others} more on this port</span>` : ""}` : `<span class="faint">Uplink to ${esc(h.uplink)}</span>`}</td></tr>`);
-  box.innerHTML = `<section class="panel" style="margin-bottom:18px"><h2>Path of ${esc(hits[0].mac)}<span class="grow"></span><button class="btn small" onclick="$('#macpath').innerHTML=''">Close</button></h2>
-    <table><thead><tr><th>MAC address</th><th>Switch</th><th>Port</th><th class="num">VLAN</th><th>Where</th></tr></thead><tbody>${rows.join("")}</tbody></table></section>`;
+  box.innerHTML = `<section class="panel" style="margin-bottom:18px"><h2>Path of ${esc(hits[0].mac)}${hits[0].vendor ? ` <span style="margin-left:8px">${vendorChip(hits[0].vendor)}</span>` : ""}<span class="grow"></span><button class="btn small" onclick="$('#macpath').innerHTML=''">Close</button></h2>
+    <table><thead><tr><th>MAC address</th><th>Vendor</th><th>Switch</th><th>Port</th><th class="num">VLAN</th><th>Where</th></tr></thead><tbody>${rows.join("")}</tbody></table></section>`;
   box.scrollIntoView({ block: "nearest" });
 }
 

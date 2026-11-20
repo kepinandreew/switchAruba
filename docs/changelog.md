@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.30
+- **Auto MAC Vendor / OUI Detection (Offline, 0% SSH)**:
+  - Embedded offline IEEE OUI hardware database (40,500+ prefixes) with specialized Pro-AV & networking brand labels (`Audinate (Dante)`, `Yamaha`, `Shure`, `QSC / Q-SYS`, `Allen & Heath`, `Biamp`, `Crestron`, `Extron`, `Blackmagic Design`, `NovaStar`, `MA Lighting`, `Focusrite`, `Sennheiser`, `Neutrik`, `HPE / Aruba`, `Hikvision`, `Dahua`, `Axis`, `Apple`, `Dell`, plus randomized/private MAC detection).
+  - Automatically displays vendor chips across **Clients** (with MAC path view & CSV export), **Switch Ports**, **Global Ports**, and **Network Map** endpoints (replacing raw MAC labels with brand names).
+  - Search directly by brand name (e.g. `audinate`, `yamaha`, `shure`, `hikvision`, `apple`, `aruba`) inside **Clients** and **Ports** (both per-switch and global).
+- **Highlight VLAN Path Overlay on Network Map (0% SSH)**:
+  - Added a **Highlight VLAN** dropdown in the Network Map toolbar listing all VLANs across visible switches (site-aware).
+  - Highlights switches, endpoints, and healthy trunks carrying the chosen VLAN in bright cyan while dimming unrelated topology, and calls out broken paths visually: **⚠ 1-side tag** (asymmetric trunk mismatch, including LAG/Trk aliases), **STP BLK** (Spanning Tree blocked), **LINK DOWN**, and **Not tagged** trunks, with live summary stats and per-link diagnostics in the switch detail card.
+
 ## 1.0.29
 - **On-Demand Cable Diagnostics (TDR Test) per Port**:
   - Added copper RJ45 Time-Domain Reflectometer (TDR) testing directly from each switch's **Ports** tab (`🔬` per port / **🔬 Cable Test** when 1 port is selected), using `diag cable-diagnostic test`/`show` on AOS-CX and `test cable-diagnostics`/`show cable-diagnostics` on AOS-S.

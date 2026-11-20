@@ -561,3 +561,119 @@ func TestPhaseBAudits(t *testing.T) {
 		t.Fatalf("expected zero trunk mismatches after tagging both ends, got: %+v", netClean)
 	}
 }
+
+func TestTopologyVLANOverlayAndVendor(t *testing.T) {
+	swA := store.Switch{ID: "sw-a", Name: "Core-A", Host: "10.0.0.1"}
+	swB := store.Switch{ID: "sw-b", Name: "Stage-B", Host: "10.0.0.2"}
+
+	snapA := &aruba.Snapshot{
+		Facts: aruba.Facts{Hostname: "Core-A", BaseMAC: "00:0b:86:01:02:03"},
+		Ports: []aruba.Port{
+			{Name: "24", Up: true, Trunk: "Trk1"},
+			{Name: "5", Up: true, VLAN: "20"},
+		},
+		VLANs: []aruba.VLAN{
+			{ID: 1, Name: "DEFAULT_VLAN", Untagged: []string{"Trk1"}},
+			{ID: 20, Name: "Audio", Tagged: []string{"Trk1"}, Untagged: []string{"5"}},
+			{ID: 30, Name: "Video", Tagged: []string{"Trk1"}},
+		},
+		Neighbors: []aruba.Neighbor{
+			{Protocol: "lldp", LocalPort: "24", SysName: "Stage-B", ChassisID: "24:de:c6:aa:bb:cc", PortID: "1/1/24", MgmtIP: "10.0.0.2"},
+			{Protocol: "lldp", LocalPort: "5", SysName: "00:1d:c1:11:22:33", ChassisID: "00:1d:c1:11:22:33", PortID: "eth0"},
+		},
+	}
+	snapB := &aruba.Snapshot{
+		Facts: aruba.Facts{Hostname: "Stage-B", BaseMAC: "24:de:c6:aa:bb:cc"},
+		Ports: []aruba.Port{
+			{Name: "1/1/24", Up: true},
+		},
+		VLANs: []aruba.VLAN{
+			{ID: 1, Name: "DEFAULT_VLAN", Untagged: []string{"1/1/24"}},
+			{ID: 20, Name: "Audio", Tagged: []string{"1/1/24"}},
+			{ID: 30, Name: "Video"}, // forgot to tag 1/1/24 on VLAN 30!
+		},
+		Neighbors: []aruba.Neighbor{
+			{Protocol: "lldp", LocalPort: "1/1/24", SysName: "Core-A", ChassisID: "00:0b:86:01:02:03", PortID: "24", MgmtIP: "10.0.0.1"},
+		},
+	}
+
+	topo := buildTopology([]switchInfo{
+		{sw: swA, snap: snapA, online: true},
+		{sw: swB, snap: snapB, online: true},
+	}, nil, true)
+
+	if len(topo.VLANs) != 3 || topo.VLANs[1].ID != 20 || topo.VLANs[1].Name != "Audio" || topo.VLANs[1].Count != 2 {
+		t.Fatalf("unexpected topology VLAN list: %+v", topo.VLANs)
+	}
+
+	var leaf *Node
+	for i := range topo.Nodes {
+		if !topo.Nodes[i].Managed {
+			leaf = &topo.Nodes[i]
+		}
+	}
+	if leaf == nil || leaf.Vendor != "Audinate (Dante)" || leaf.MAC != "00:1d:c1:11:22:33" {
+		t.Fatalf("expected unmanaged leaf node with Audinate (Dante) vendor, got: %+v", leaf)
+	}
+
+	var trunk *Edge
+	for i := range topo.Edges {
+		e := &topo.Edges[i]
+		if (e.From == "sw-a" && e.To == "sw-b") || (e.From == "sw-b" && e.To == "sw-a") {
+			trunk = e
+		}
+	}
+	if trunk == nil {
+		t.Fatalf("expected inter-switch trunk edge, got: %+v", topo.Edges)
+	}
+	// sw-a < sw-b alphabetically, so From=sw-a (carries 1,20,30 via Trk1), To=sw-b (carries 1,20 only)
+	if len(trunk.FromVLANs) != 3 || trunk.FromVLANs[2] != 30 {
+		t.Fatalf("expected FromVLANs=[1 20 30] via Trk1 alias, got: %+v", trunk.FromVLANs)
+	}
+	if len(trunk.ToVLANs) != 2 || trunk.ToVLANs[1] != 20 {
+		t.Fatalf("expected ToVLANs=[1 20] (missing 30), got: %+v", trunk.ToVLANs)
+	}
+}
+
+func TestClientsAndDetailVendorBackfill(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sw, err := st.SaveSwitch(store.Switch{Name: "Stage-A", Host: "10.0.0.10"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an older on-disk snapshot that lacks Vendor field on MAC entries
+	snap := &aruba.Snapshot{
+		CollectedAt: time.Now(),
+		Ports:       []aruba.Port{{Name: "1", Enabled: true, Up: true, Description: "Console"}},
+		MACs: []aruba.MACEntry{
+			{MAC: "00:a0:de:11:22:33", Port: "1", VLAN: "20"},
+			{MAC: "00:0e:dd:44:55:66", Port: "1", VLAN: "20"},
+		},
+	}
+	if err := st.SaveSnapshot(sw.ID, *snap); err != nil {
+		t.Fatal(err)
+	}
+	m := New(st, nil)
+	<-m.loaded
+	clients := m.Clients()
+	if len(clients) != 2 {
+		t.Fatalf("expected 2 clients, got %d", len(clients))
+	}
+	gotV := map[string]string{}
+	for _, c := range clients {
+		gotV[c.MAC] = c.Vendor
+	}
+	if gotV["00:a0:de:11:22:33"] != "Yamaha" || gotV["00:0e:dd:44:55:66"] != "Shure" {
+		t.Fatalf("expected Yamaha and Shure vendors from Clients(), got: %+v", gotV)
+	}
+	det, err := m.Detail(sw.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(det.Snapshot.MACs) != 2 || det.Snapshot.MACs[0].Vendor != "Yamaha" || det.Snapshot.MACs[1].Vendor != "Shure" {
+		t.Fatalf("expected Detail() to backfill Vendor on cached snapshot MACs, got: %+v", det.Snapshot.MACs)
+	}
+}

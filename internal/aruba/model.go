@@ -189,9 +189,10 @@ type QoSInfo struct {
 
 // MACEntry is one learned address: where a client is plugged in.
 type MACEntry struct {
-	MAC  string `json:"mac"` // aa:bb:cc:dd:ee:ff
-	Port string `json:"port"`
-	VLAN string `json:"vlan"`
+	MAC    string `json:"mac"` // aa:bb:cc:dd:ee:ff
+	Port   string `json:"port"`
+	VLAN   string `json:"vlan"`
+	Vendor string `json:"vendor,omitempty"`
 }
 
 type StackMember struct {
