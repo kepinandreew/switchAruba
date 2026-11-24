@@ -4816,10 +4816,11 @@ async function openSaveTemplateModal(switchId) {
     <div class="foot">
       <span class="grow"></span>
       <button class="btn" data-close>Cancel</button>
+      <button class="btn" id="tplSaveExportBtn">📤 Simpan &amp; Export .cfg (Untuk Console)</button>
       <button class="btn primary" id="tplSaveBtn">💾 Simpan Template</button>
     </div>`);
 
-  $("#tplSaveBtn", m).onclick = async () => {
+  const saveTpl = async (openExport) => {
     const name = $("#tplName", m).value.trim();
     const notes = $("#tplNotes", m).value.trim();
     if (!name) {
@@ -4830,10 +4831,13 @@ async function openSaveTemplateModal(switchId) {
       const saved = await call("SaveSwitchAsTemplate", switchId, name, notes);
       closeModal();
       toast(`Template "${saved.name}" berhasil disimpan (${saved.vlans?.length || 0} VLAN, tanpa IP address).`);
+      if (openExport) openExportTemplateCfgModal(saved.id);
     } catch (e) {
       $("#tplSaveMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
     }
   };
+  $("#tplSaveBtn", m).onclick = () => saveTpl(false);
+  $("#tplSaveExportBtn", m).onclick = () => saveTpl(true);
 }
 
 async function openApplyTemplateModal(switchId) {
@@ -4889,10 +4893,17 @@ async function openApplyTemplateModal(switchId) {
       <div id="atMsg"></div>
     </div>
     <div class="foot">
+      <button class="btn" id="atExportCfgBtn" title="Export file .cfg atau copy perintah CLI untuk paste via kabel Console">📤 Export .cfg / Console CLI</button>
       <span class="grow"></span>
       <button class="btn" data-close>Cancel</button>
       <button class="btn primary" id="atPreviewBtn">Review CLI changes</button>
     </div>`, true);
+
+  $("#atExportCfgBtn", m).onclick = () => {
+    const tid = $("#atTpl", m).value;
+    closeModal();
+    openExportTemplateCfgModal(tid);
+  };
 
   const syncTplInfo = () => {
     const t = templates.find((x) => x.id === $("#atTpl", m).value) || templates[0];
@@ -4977,10 +4988,18 @@ async function openTemplatesManagerModal() {
         </td>
         <td class="num">${t.ports?.length || 0}</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn small danger" data-del-tpl="${esc(t.id)}">${ICON.trash}</button>
+          <button class="btn small primary" data-exp-tpl="${esc(t.id)}" title="Export file .cfg atau Copy CLI untuk paste via kabel Console">📤 Export .cfg / Console CLI</button>
+          <button class="btn small danger" data-del-tpl="${esc(t.id)}" title="Hapus template">${ICON.trash}</button>
         </td>
       </tr>`).join("")}
     </tbody></table></div>`;
+    for (const b of $$("[data-exp-tpl]", box)) {
+      b.onclick = () => {
+        const id = b.dataset.expTpl;
+        closeModal();
+        openExportTemplateCfgModal(id);
+      };
+    }
     for (const b of $$("[data-del-tpl]", box)) {
       b.onclick = async () => {
         await call("DeleteTemplate", b.dataset.delTpl);
@@ -5010,6 +5029,161 @@ async function openTemplatesManagerModal() {
       draw();
     } catch (e) {
       $("#tmMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+async function openExportTemplateCfgModal(initialTemplateId) {
+  const templates = (await call("Templates").catch(() => [])) || [];
+  if (!templates.length) {
+    toast("Belum ada template untuk di-export.", true);
+    return;
+  }
+  const initTpl = templates.find((t) => t.id === initialTemplateId) || templates[0];
+  let currentLines = [];
+
+  const m = modal(`<h2>📤 Export File .cfg / Console CLI (Provisioning Switch Baru)</h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Generate file <code>.cfg</code> atau skrip perintah CLI siap pakai untuk dimasukkan manual lewat <b>kabel Console (PuTTY / TeraTerm / Terminal)</b> atau menu Restore pada switch baru.</p>
+      <div class="row">
+        <label class="f" style="flex:1.4"><span>Pilih Template</span>
+          <select id="ecTpl">${templates.map((t) => `<option value="${esc(t.id)}"${t.id === initTpl.id ? " selected" : ""}>${esc(t.name)} (${t.vlans?.length || 0} VLANs)</option>`).join("")}</select>
+        </label>
+        <label class="f" style="flex:1.2"><span>Target Seri Switch Baru</span>
+          <select id="ecFam">
+            <option value="aos-cx"${initTpl.sourceFamily !== "aos-s" ? " selected" : ""}>Aruba AOS-CX (6000 / 6100 / 6200 / 6300)</option>
+            <option value="aos-s"${initTpl.sourceFamily === "aos-s" ? " selected" : ""}>Aruba AOS-S / ProCurve (2530 / 2540 / 2930F)</option>
+          </select>
+        </label>
+        <label class="f" style="flex:0.9"><span>Jumlah Port Switch Baru</span>
+          <select id="ecPorts">
+            <option value="0">Ikuti Template (${initTpl.ports?.length || 24} port)</option>
+            <option value="8">8-Port</option>
+            <option value="12">12-Port</option>
+            <option value="16">16-Port</option>
+            <option value="24">24-Port</option>
+            <option value="28">28-Port (24 + 4 SFP)</option>
+            <option value="48">48-Port</option>
+            <option value="52">52-Port (48 + 4 SFP)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="row">
+        <label class="f" style="flex:1"><span>Hostname Switch Baru (opsional)</span>
+          <input type="text" id="ecHost" placeholder="Contoh: SW-STAGE-02 (kosongkan jika tanpa hostname)">
+        </label>
+        <label class="f" style="flex:0.5"><span>Mgmt VLAN</span>
+          <input type="number" id="ecMgmtVlan" value="1" min="1" max="4094">
+        </label>
+        <label class="f" style="flex:1.1"><span>IP Address Baru (kosongkan = Tanpa IP)</span>
+          <input type="text" id="ecIp" class="mono" placeholder="Kosong = No IP (atau isi mis. 10.0.0.15/24)">
+        </label>
+        <label class="f" style="flex:0.9"><span>Default Gateway (opsional)</span>
+          <input type="text" id="ecGw" class="mono" placeholder="Contoh: 10.0.0.1">
+        </label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px 12px;margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(15,23,42,.45)">
+        <label class="check"><input type="checkbox" id="ecVlans" checked> <span><b>Daftar VLAN &amp; Nama VLAN</b></span></label>
+        <label class="check"><input type="checkbox" id="ecIgmp" checked> <span><b>IGMP Snooping</b> per VLAN</span></label>
+        <label class="check"><input type="checkbox" id="ecQuerier"> <span><b>IGMP Querier</b> (Hanya Core)</span></label>
+        <label class="check"><input type="checkbox" id="ecDante" ${initTpl.danteQos ? "checked" : ""}> <span><b>Dante QoS &amp; Disable EEE</b></span></label>
+        <label class="check"><input type="checkbox" id="ecJumbo" ${initTpl.jumboMtu ? "checked" : ""}> <span><b>Jumbo Frames / MTU (9198)</b></span></label>
+        <label class="check"><input type="checkbox" id="ecSys" checked> <span><b>Spanning Tree &amp; NTP</b></span></label>
+        <label class="check"><input type="checkbox" id="ecPortVlans" checked> <span><b>Port VLANs (Untagged/Tagged)</b></span></label>
+        <label class="check"><input type="checkbox" id="ecPortNames" checked> <span><b>Port Descriptions / Names</b></span></label>
+        <label class="check"><input type="checkbox" id="ecSave" checked> <span><b>Sertakan <code>write memory</code></b></span></label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:12.5px;font-weight:500">Preview Isi File <code>.cfg</code> / Skrip Console CLI:</span>
+        <span class="faint" style="font-size:12px" id="ecCount"></span>
+      </div>
+      <pre class="code mono" id="ecPreview" style="max-height:220px;margin:0"></pre>
+      <div id="ecMsg" style="margin-top:8px"></div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="ecBackBtn">← Daftar Template</button>
+      <span class="grow"></span>
+      <button class="btn" data-close>Close</button>
+      <button class="btn" id="ecCopyBtn">📋 Copy CLI (Paste ke Console)</button>
+      <button class="btn primary" id="ecSaveFileBtn">${ICON.download}Export File .cfg</button>
+    </div>`, true);
+
+  $("#ecBackBtn", m).onclick = () => {
+    closeModal();
+    openTemplatesManagerModal();
+  };
+
+  const buildReq = () => ({
+    templateId: $("#ecTpl", m).value,
+    targetFamily: $("#ecFam", m).value,
+    targetPortCount: +$("#ecPorts", m).value || 0,
+    newHostname: $("#ecHost", m).value.trim(),
+    mgmtVlan: +$("#ecMgmtVlan", m).value || 1,
+    newIp: $("#ecIp", m).value.trim(),
+    newGateway: $("#ecGw", m).value.trim(),
+    includeVlans: $("#ecVlans", m).checked,
+    includeIgmp: $("#ecIgmp", m).checked,
+    igmpQuerier: $("#ecQuerier", m).checked,
+    includeDanteQos: $("#ecDante", m).checked,
+    jumboMtu: $("#ecJumbo", m).checked,
+    includeSystem: $("#ecSys", m).checked,
+    includePortVlans: $("#ecPortVlans", m).checked,
+    includePortNames: $("#ecPortNames", m).checked,
+    save: $("#ecSave", m).checked,
+  });
+
+  const refreshPreview = async () => {
+    const req = buildReq();
+    try {
+      currentLines = (await call("GenerateTemplateConfig", req)) || [];
+      $("#ecPreview", m).textContent = currentLines.join("\n");
+      $("#ecCount", m).innerHTML = `${currentLines.length} baris perintah · ${req.newIp ? `<span style="color:#38bdf8">Dengan IP baru (${esc(req.newIp)})</span>` : `<span class="ok">100% Tanpa IP Address</span>`}`;
+      $("#ecMsg", m).innerHTML = "";
+    } catch (e) {
+      currentLines = [];
+      $("#ecPreview", m).textContent = "";
+      $("#ecMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+
+  $("#ecTpl", m).onchange = () => {
+    const t = templates.find((x) => x.id === $("#ecTpl", m).value);
+    if (t) {
+      if (t.sourceFamily === "aos-s" || t.sourceFamily === "aos-cx") $("#ecFam", m).value = t.sourceFamily;
+      $("#ecDante", m).checked = !!t.danteQos;
+      $("#ecJumbo", m).checked = !!t.jumboMtu;
+    }
+    refreshPreview();
+  };
+  for (const sel of ["#ecFam", "#ecPorts", "#ecHost", "#ecMgmtVlan", "#ecIp", "#ecGw", "#ecVlans", "#ecIgmp", "#ecQuerier", "#ecDante", "#ecJumbo", "#ecSys", "#ecPortVlans", "#ecPortNames", "#ecSave"]) {
+    const el = $(sel, m);
+    if (el) {
+      el.addEventListener("input", refreshPreview);
+      el.addEventListener("change", refreshPreview);
+    }
+  }
+  refreshPreview();
+
+  $("#ecCopyBtn", m).onclick = () => {
+    if (!currentLines.length) return;
+    copyText(currentLines.join("\n") + "\n");
+  };
+
+  $("#ecSaveFileBtn", m).onclick = async () => {
+    if (!currentLines.length) return;
+    const t = templates.find((x) => x.id === $("#ecTpl", m).value) || initTpl;
+    const host = $("#ecHost", m).value.trim();
+    const fam = $("#ecFam", m).value;
+    const slug = csvSlug(host || t.name || "switch-template");
+    const fname = `${slug}-${fam}.cfg`;
+    try {
+      const p = await call("ExportText", fname, currentLines.join("\n") + "\n");
+      toast(`File konfigurasi disimpan ke ${p}`);
+    } catch (e) {
+      if (e.message !== "cancelled") toast(e.message, true);
     }
   };
 }

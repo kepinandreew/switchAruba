@@ -2,6 +2,7 @@ package aruba
 
 import (
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,10 +48,15 @@ type SwitchTemplate struct {
 }
 
 // TemplateApplyRequest controls which sections of a SwitchTemplate are applied
-// to a target switch.
+// to a target switch or exported into a standalone .cfg CLI script for console provisioning.
 type TemplateApplyRequest struct {
 	TemplateID       string   `json:"templateId"`
+	TargetFamily     Family   `json:"targetFamily,omitempty"`
+	TargetPortCount  int      `json:"targetPortCount,omitempty"`
 	NewHostname      string   `json:"newHostname,omitempty"`
+	MgmtVLAN         int      `json:"mgmtVlan,omitempty"`
+	NewIP            string   `json:"newIp,omitempty"`      // empty = no IP; or "10.0.0.15/24" / "10.0.0.15 255.255.255.0"
+	NewGateway       string   `json:"newGateway,omitempty"` // optional default gateway when NewIP is set
 	IncludeVLANs     bool     `json:"includeVlans"`
 	IncludeIGMP      bool     `json:"includeIgmp"`
 	IGMPQuerier      bool     `json:"igmpQuerier"`
@@ -220,13 +226,29 @@ func ExtractTemplateFromConfigText(name, notes, rawCfg string) (SwitchTemplate, 
 // Aruba AOS-CX or AOS-S CLI commands for a target switch, guaranteeing zero
 // management IP or default-gateway collisions.
 func BuildTemplateCommands(targetFamily Family, targetSnap *Snapshot, tpl SwitchTemplate, req TemplateApplyRequest) ([]string, error) {
+	if req.TargetFamily == FamilyAOSCX || req.TargetFamily == FamilyAOSS {
+		targetFamily = req.TargetFamily
+	}
 	if targetFamily == FamilyInstantOn {
 		return nil, fmt.Errorf("provisioning template via SSH tidak didukung pada switch Instant On")
 	}
-	if !req.IncludeVLANs && !req.IncludeDanteQoS && !req.JumboMTU && !req.IncludePortVLANs && !req.IncludePortNames && !req.IncludeSystem && strings.TrimSpace(req.NewHostname) == "" {
+	if !req.IncludeVLANs && !req.IncludeDanteQoS && !req.JumboMTU && !req.IncludePortVLANs && !req.IncludePortNames && !req.IncludeSystem && strings.TrimSpace(req.NewHostname) == "" && strings.TrimSpace(req.NewIP) == "" {
 		return nil, fmt.Errorf("pilih minimal satu bagian template untuk diterapkan")
 	}
 	newHost := CleanPortName(strings.TrimSpace(req.NewHostname))
+
+	// When generating an offline .cfg for a new unboxed switch with a specified port count (8/12/24/48/52)
+	if targetSnap == nil && req.TargetPortCount > 0 && req.TargetPortCount <= 128 {
+		synth := &Snapshot{Family: targetFamily}
+		for i := 1; i <= req.TargetPortCount; i++ {
+			pName := strconv.Itoa(i)
+			if targetFamily == FamilyAOSCX {
+				pName = "1/1/" + pName
+			}
+			synth.Ports = append(synth.Ports, Port{Name: pName, Enabled: true})
+		}
+		targetSnap = synth
+	}
 
 	skip := map[string]bool{}
 	for _, p := range req.SkipPorts {
@@ -460,11 +482,77 @@ func BuildTemplateCommands(targetFamily Family, targetSnap *Snapshot, tpl Switch
 		}
 	}
 
+	// 6. Optional New Management IP & Default Gateway (ONLY when explicitly provided for a new switch)
+	if strings.TrimSpace(req.NewIP) != "" {
+		ipCIDR, ipMask, err := parseTemplateMgmtIP(req.NewIP)
+		if err != nil {
+			return nil, err
+		}
+		mgmtVid := req.MgmtVLAN
+		if mgmtVid < 1 || mgmtVid > 4094 {
+			mgmtVid = 1
+		}
+		gw := strings.TrimSpace(req.NewGateway)
+		if gw != "" && net.ParseIP(gw).To4() == nil {
+			return nil, fmt.Errorf("Default Gateway tidak valid: %s", gw)
+		}
+		if targetFamily == FamilyAOSCX {
+			cmds = append(cmds,
+				fmt.Sprintf("interface vlan %d", mgmtVid),
+				"ip address "+ipCIDR,
+				"no shutdown",
+				"exit",
+			)
+			if gw != "" {
+				cmds = append(cmds, "ip route 0.0.0.0/0 "+gw)
+			}
+		} else {
+			cmds = append(cmds,
+				fmt.Sprintf("vlan %d", mgmtVid),
+				"ip address "+ipMask,
+				"exit",
+			)
+			if gw != "" {
+				cmds = append(cmds, "ip default-gateway "+gw)
+			}
+		}
+	}
+
 	cmds = append(cmds, "end")
 	if req.Save {
 		cmds = append(cmds, "write memory")
 	}
 	return cmds, nil
+}
+
+func parseTemplateMgmtIP(raw string) (cidrStr, ipMaskStr string, err error) {
+	s := strings.TrimSpace(raw)
+	if strings.Contains(s, "/") {
+		ip, ipNet, perr := net.ParseCIDR(s)
+		if perr != nil || ip.To4() == nil {
+			return "", "", fmt.Errorf("format IP/CIDR tidak valid (contoh: 10.0.0.15/24): %s", s)
+		}
+		ones, _ := ipNet.Mask.Size()
+		m := net.IP(ipNet.Mask).To4()
+		return fmt.Sprintf("%s/%d", ip.To4().String(), ones), fmt.Sprintf("%s %s", ip.To4().String(), m.String()), nil
+	}
+	f := strings.Fields(s)
+	if len(f) == 2 {
+		ip := net.ParseIP(f[0]).To4()
+		m := net.ParseIP(f[1]).To4()
+		if ip == nil || m == nil {
+			return "", "", fmt.Errorf("format IP & Subnet Mask tidak valid: %s", s)
+		}
+		ones, bits := net.IPv4Mask(m[0], m[1], m[2], m[3]).Size()
+		if bits != 32 || ones <= 0 {
+			return "", "", fmt.Errorf("subnet mask tidak valid: %s", f[1])
+		}
+		return fmt.Sprintf("%s/%d", ip.String(), ones), fmt.Sprintf("%s %s", ip.String(), m.String()), nil
+	}
+	if ip := net.ParseIP(s).To4(); ip != nil {
+		return ip.String() + "/24", ip.String() + " 255.255.255.0", nil
+	}
+	return "", "", fmt.Errorf("format IP tidak valid (gunakan contoh 10.0.0.15/24 atau 10.0.0.15 255.255.255.0)")
 }
 
 func safeHostToken(s string) bool {

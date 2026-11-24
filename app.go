@@ -729,3 +729,24 @@ func (a *App) PreviewTemplate(switchID string, req aruba.TemplateApplyRequest) (
 func (a *App) ApplyTemplate(switchID string, req aruba.TemplateApplyRequest) (aruba.ApplyResult, error) {
 	return a.mgr.ApplyTemplate(switchID, req)
 }
+
+// GenerateTemplateConfig compiles a SwitchTemplate into an offline .cfg / Console CLI script
+// (for pasting over a serial Console cable or saving as a .cfg file for a brand-new switch).
+func (a *App) GenerateTemplateConfig(req aruba.TemplateApplyRequest) ([]string, error) {
+	if a.st == nil {
+		return nil, errors.New("storage not initialized")
+	}
+	tpl, ok := a.st.Template(req.TemplateID)
+	if !ok {
+		return nil, errors.New("template not found")
+	}
+	fam := req.TargetFamily
+	if fam != aruba.FamilyAOSCX && fam != aruba.FamilyAOSS {
+		if tpl.SourceFamily == aruba.FamilyAOSCX || tpl.SourceFamily == aruba.FamilyAOSS {
+			fam = tpl.SourceFamily
+		} else {
+			fam = aruba.FamilyAOSCX
+		}
+	}
+	return aruba.BuildTemplateCommands(fam, nil, tpl, req)
+}

@@ -9,7 +9,7 @@
 <p align="center">
   <img alt="macOS" src="https://img.shields.io/badge/macOS-Universal%20(M1%2FM2%2FM3%2FIntel)-0f172a?style=flat-square&logo=apple&logoColor=white">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0f172a?style=flat-square&logo=windows&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.32-0ea5e9?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.33-0ea5e9?style=flat-square">
 </p>
 
 <p align="center">

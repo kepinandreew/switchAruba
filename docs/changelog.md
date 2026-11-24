@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.33
+- **Export Switch Template to `.cfg` File & Copy Console CLI Script**:
+  - Added **📤 Export .cfg / Console CLI** directly inside **🧩 Templates**, **💾 Save Template**, and **🧩 Apply Template** so engineers provisioning a brand-new unboxed switch via a serial Console cable (PuTTY / TeraTerm / Terminal) or web config upload can export a ready-to-use `.cfg` file or copy the full CLI script to clipboard in one click.
+  - Supports choosing the target switch series (**Aruba AOS-CX** or **Aruba AOS-S / ProCurve**), target port count (`8`, `12`, `16`, `24`, `28`, `48`, `52` ports), optional new hostname, and optional new management IP / subnet / gateway (or leaving IP blank for a 100% IP-free `.cfg`).
+
 ## 1.0.32
 - **Startup Network Adapter (NIC / Ethernet / Wi-Fi) Picker & Fast Subnet Discovery Scanner**:
   - Opens a quick **Network Adapter Picker** on startup (and via the clickable `🔌 NIC` pill in the bottom-left sidebar) listing all active Ethernet, Wi-Fi, and virtual adapters with their IP, CIDR subnet, scan range, and MAC address.

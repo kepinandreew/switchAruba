@@ -76,6 +76,8 @@ export function FirmwareImages():Promise<Array<firmware.Image>>;
 
 export function ForgetAppPassword():Promise<void>;
 
+export function GenerateTemplateConfig(arg1:aruba.TemplateApplyRequest):Promise<Array<string>>;
+
 export function GetActiveNIC():Promise<string>;
 
 export function GetBackup(arg1:string,arg2:string):Promise<string>;

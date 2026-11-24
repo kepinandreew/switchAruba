@@ -138,6 +138,10 @@ export function ForgetAppPassword() {
   return window['go']['main']['App']['ForgetAppPassword']();
 }
 
+export function GenerateTemplateConfig(arg1) {
+  return window['go']['main']['App']['GenerateTemplateConfig'](arg1);
+}
+
 export function GetActiveNIC() {
   return window['go']['main']['App']['GetActiveNIC']();
 }

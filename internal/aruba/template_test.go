@@ -119,4 +119,28 @@ interface 1/1/24
 			t.Errorf("missing %q in AOS-S template commands:\n%s", want, joinedAOSS)
 		}
 	}
+
+	// 3. Offline console .cfg export with optional new management IP and target port count
+	cmdsConsole, err := BuildTemplateCommands(FamilyAOSCX, nil, tpl, TemplateApplyRequest{
+		TargetFamily:     FamilyAOSCX,
+		TargetPortCount:  8,
+		NewHostname:      "SW-CONSOLE-8P",
+		MgmtVLAN:         1,
+		NewIP:            "10.0.0.55/24",
+		NewGateway:       "10.0.0.1",
+		IncludeVLANs:     true,
+		IncludeDanteQoS:  true,
+		IncludePortVLANs: true,
+		Save:             true,
+	})
+	if err != nil {
+		t.Fatalf("offline console .cfg build failed: %v", err)
+	}
+	joinedConsole := strings.Join(cmdsConsole, "\n")
+	if !strings.Contains(joinedConsole, "ip address 10.0.0.55/24") || !strings.Contains(joinedConsole, "ip route 0.0.0.0/0 10.0.0.1") {
+		t.Fatalf("expected new management IP & gateway in console export, got:\n%s", joinedConsole)
+	}
+	if strings.Contains(joinedConsole, "interface 1/1/24") {
+		t.Fatalf("expected 8-port target not to include port 1/1/24:\n%s", joinedConsole)
+	}
 }

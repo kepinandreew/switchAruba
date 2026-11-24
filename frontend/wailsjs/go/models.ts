@@ -1158,7 +1158,12 @@ export namespace aruba {
 	}
 	export class TemplateApplyRequest {
 	    templateId: string;
+	    targetFamily?: string;
+	    targetPortCount?: number;
 	    newHostname?: string;
+	    mgmtVlan?: number;
+	    newIp?: string;
+	    newGateway?: string;
 	    includeVlans: boolean;
 	    includeIgmp: boolean;
 	    igmpQuerier: boolean;
@@ -1177,7 +1182,12 @@ export namespace aruba {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.templateId = source["templateId"];
+	        this.targetFamily = source["targetFamily"];
+	        this.targetPortCount = source["targetPortCount"];
 	        this.newHostname = source["newHostname"];
+	        this.mgmtVlan = source["mgmtVlan"];
+	        this.newIp = source["newIp"];
+	        this.newGateway = source["newGateway"];
 	        this.includeVlans = source["includeVlans"];
 	        this.includeIgmp = source["includeIgmp"];
 	        this.igmpQuerier = source["igmpQuerier"];
