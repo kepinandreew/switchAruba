@@ -361,7 +361,13 @@ function renderSide() {
     ${item("configs", "doc", "Configs")}
     ${item("firmware", "chip", "Firmware", fwCount ? `<span class="count info">${fwCount}</span>` : "")}
     ${item("settings", "gear", "Settings")}
-    <div class="side-foot">${sd ? `<div class="foot-pill"><span class="dot up"></span><span><b>${sd.online}</b> / ${sd.total} online</span></div>` : ""}${sd?.collecting ? `<div style="margin-top:4px;color:var(--accent)">Collecting from ${plural(sd.collecting, "switch").replace("switchs", "switches")}…</div>` : ""}</div>`;
+    <div class="side-foot">
+      <button type="button" class="foot-pill nic-pill" onclick="openNICModal(false)" title="Pilih Network Adapter (Ethernet / Wi-Fi) untuk referensi scan & koneksi switch">
+        <span>🔌</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.activeNIC ? `${esc(S.activeNICName || "NIC")} · <b class="mono">${esc(S.activeNIC)}</b>` : `NIC: <b>Auto (Semua)</b>`}</span>
+      </button>
+      ${sd ? `<div class="foot-pill"><span class="dot up"></span><span><b>${sd.online}</b> / ${sd.total} online</span></div>` : ""}${sd?.collecting ? `<div style="margin-top:4px;color:var(--accent)">Collecting from ${plural(sd.collecting, "switch").replace("switchs", "switches")}…</div>` : ""}
+    </div>`;
 }
 
 // URLs go through a data attribute, never into inline JavaScript
@@ -920,7 +926,9 @@ function renderSwitches(soft, noMacFetch) {
       <span class="searchbox">${ICON.search}<input type="search" id="swsearch" placeholder="Search switch, IP, port, MAC…  /" value="${esc(S.query)}" oninput="S.query=this.value;renderSwitches(true)" title="Name, address, site, tag, model, software, port desc/name, or client MAC (e.g. aa:bb:cc or 9abc). Also: online, offline, disabled, problem"></span>
       <button class="btn" title="Export visible switches to CSV (Excel-ready)" onclick="exportSwitchesCSV()">${ICON.download}CSV</button>
       <button class="btn" title="Choose columns" onclick="event.stopPropagation();openColumns(this)">${ICON.cols}Columns</button>
+      <button class="btn" onclick="openTemplatesManagerModal()" title="Kelola config template switch (tanpa IP bentrok)">🧩 Templates</button>
       ${d.offline > 0 ? `<button class="btn danger" onclick="deleteOfflineSwitches()" title="Delete all unreachable switches">${ICON.trash}Delete offline (${d.offline})</button>` : ""}
+      <button class="btn" onclick="openSubnetScanModal()" title="Scan subnet dari NIC/Ethernet terpilih untuk temukan switch aktif">🔍 Scan Subnet</button>
       <button class="btn" onclick="openBulkModal()">Add many</button>
       <button class="btn primary" onclick="openSwitchModal()">${ICON.plus}Add switch</button></div>
     <div id="selbar">${bar}</div>
@@ -1091,6 +1099,8 @@ function renderDetail(soft) {
   else if (d.status.authFailed) banners.push(`<div class="banner"><div class="grow"><b>Login failed.</b> ${esc(d.status.collectError)}. Fix the credentials, then collect again.</div><button class="btn" onclick="openSwitchModal(S.detail)">Edit switch</button></div>`);
   $("#main").innerHTML = `<div class="page">
     <div class="head"><button class="btn small" onclick="goBack()" title="Back">${ICON.back}</button><h1>${esc(name)}</h1><span id="detail-status">${detailStatus(d)}</span><span class="grow"></span>
+      ${d.cloud || d.web || d.family === "instant-on" ? "" : `<button class="btn" onclick="openSaveTemplateModal('${d.id}')" title="Simpan konfigurasi switch ini sebagai Template (tanpa IP address & hostname)">💾 Save Template</button>`}
+      ${d.cloud || d.web || d.family === "instant-on" ? "" : `<button class="btn" onclick="openApplyTemplateModal('${d.id}')" title="Terapkan Template konfigurasi ke switch ini">🧩 Apply Template</button>`}
       ${d.cloud ? "" : `<button class="btn" onclick="openWeb('${d.id}')" title="Open the switch's web interface in your browser">${ICON.globe}Web</button>`}
       ${d.cloud || d.web ? "" : `<button class="btn" onclick="openSSH('${d.id}')" title="Open in your SSH client">${ICON.term}SSH</button>`}
       ${d.disabled ? "" : `<button class="btn" onclick="collectOne(this)">${ICON.refresh}Collect now</button>`}
@@ -2386,6 +2396,7 @@ async function openDanteProfileModal() {
       <label class="check"><input type="checkbox" id="dpIgmp" checked> <span><b>IGMP Snooping</b> pada VLAN Audio terpilih <span class="faint">(cegah multicast audio membanjiri semua port)</span></span></label>
       <label class="check"><input type="checkbox" id="dpQuerier"> <span><b>IGMP Querier</b> pada VLAN terpilih <span class="faint">— ⚠️ centang HANYA di 1 Core Switch per VLAN!</span></span></label>
       <label class="check"><input type="checkbox" id="dpNoEEE" ${(!isCX || hasExplicitEEE) ? "checked" : ""}> <span><b>Disable Energy-Efficient Ethernet (EEE)</b> (<code>no energy-efficient-ethernet</code>) pada port VLAN terpilih <span class="faint">— dapat me-reset link ~1-2 detik pada port yg berubah${isCX ? " (AOS-CX default EEE sudah off)" : ""}</span></span></label>
+      <label class="check"><input type="checkbox" id="dpJumbo"> <span><b>Enable Jumbo Frames / MTU</b> (<code>${isCX ? "mtu 9198" : "jumbo"}</code>) <span class="faint">— opsional: aktifkan jika jaringan juga dipakai untuk Video-over-IP (NDI / Dante AV Video / NAS); tidak wajib untuk murni Dante Audio</span></span></label>
     </div>
 
     <label class="check"><input type="checkbox" id="dpSave" ${S.saveConfig !== false ? "checked" : ""}> Save to startup config (write memory)</label>
@@ -2423,7 +2434,8 @@ async function openDanteProfileModal() {
     const globalTrust = $("#dpGlobalTrust", m).checked;
     const portTrust = isCX ? (!globalTrust && $("#dpPortTrust", m).checked) : false;
     const disableEee = $("#dpNoEEE", m).checked;
-    const targetPorts = disableEee && !portTrust
+    const jumboMtu = $("#dpJumbo", m).checked;
+    const targetPorts = (disableEee && !portTrust && !jumboMtu)
       ? allPorts.filter((pn) => !portByName[pn]?.eeeOff)
       : allPorts;
     const req = {
@@ -2436,6 +2448,7 @@ async function openDanteProfileModal() {
       igmpSnooping: $("#dpIgmp", m).checked && vlanIds.length > 0,
       igmpQuerier: $("#dpQuerier", m).checked && vlanIds.length > 0,
       disableEee: disableEee && targetPorts.length > 0,
+      jumboMtu,
       save: $("#dpSave", m).checked,
     };
     S.saveConfig = req.save;
@@ -4534,6 +4547,473 @@ function showError(where, e) {
 window.addEventListener("unhandledrejection", (e) => toast("Error: " + (e.reason?.message || e.reason), true));
 window.addEventListener("error", (e) => toast("Error: " + e.message, true));
 
+// ---------- network adapter (NIC) picker & fast subnet scanner ----------
+
+async function refreshNICState() {
+  try {
+    S.nics = (await call("ListNICs")) || [];
+    S.activeNIC = (await call("GetActiveNIC")) || "";
+    const hit = S.nics.find((n) => n.ip === S.activeNIC);
+    S.activeNICName = hit ? hit.name : (S.settings?.bindNic || "");
+    renderSide();
+  } catch {}
+}
+
+async function openNICModal(isStartup) {
+  await refreshNICState();
+  const nics = S.nics || [];
+  let pickedIP = S.activeNIC || "";
+  if (isStartup && !pickedIP && nics.length > 0) {
+    const eth = nics.find((n) => n.kind === "ethernet") || nics[0];
+    pickedIP = eth ? eth.ip : "";
+  }
+  const m = modal(`<h2>🔌 Pilih Network Adapter (Ethernet / Wi-Fi)<span class="grow"></span><button type="button" class="btn small" id="nicRefBtn">${ICON.refresh}Refresh</button></h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Pilih kartu jaringan (NIC) yang terhubung ke jaringan switch Anda sebagai referensi <b>Scan Subnet</b> dan jalur koneksi <b>SSH / Web</b>:</p>
+      <div class="nic-list" id="nicList"></div>
+      <label class="check" style="margin-top:4px"><input type="checkbox" id="nicSkip" ${S.settings?.skipStartupNic ? "checked" : ""}> <span>Jangan tampilkan otomatis saat baru buka aplikasi <span class="faint">(bisa diganti kapan saja di pojok kiri bawah)</span></span></label>
+      <div id="nicMsg"></div>
+    </div>
+    <div class="foot">
+      ${isStartup ? `<button class="btn" data-close>Lewati</button>` : `<button class="btn" data-close>Cancel</button>`}
+      <span class="grow"></span>
+      <button class="btn" id="nicScanBtn">🔍 Gunakan &amp; Scan Subnet Ini</button>
+      <button class="btn primary" id="nicApplyBtn">Gunakan Adapter Ini</button>
+    </div>`, true);
+
+  const drawCards = () => {
+    const box = $("#nicList", m);
+    if (!box) return;
+    const rows = (S.nics || []).map((n) => {
+      const on = pickedIP === n.ip;
+      const badgeLabel = n.kind === "wifi" ? "Wi-Fi" : n.kind === "virtual" ? "Virtual" : "Ethernet";
+      return `<label class="nic-card${on ? " on" : ""}" data-ip="${esc(n.ip)}">
+        <input type="radio" name="nicpick" value="${esc(n.ip)}" ${on ? "checked" : ""}>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <b>${esc(n.name)}</b>
+            <span class="nic-badge ${esc(n.kind)}">${badgeLabel}</span>
+            <span class="mono" style="color:#38bdf8;font-weight:600">${esc(n.ip)}</span>
+          </div>
+          <div class="faint" style="font-size:12px;margin-top:3px">
+            Subnet <span class="mono">${esc(n.cidr)}</span> · Scan Range <span class="mono">${esc(n.rangeHint)}</span>${n.mac ? ` · MAC <span class="mono">${esc(n.mac)}</span>` : ""}
+          </div>
+        </div>
+      </label>`;
+    });
+    const autoOn = !pickedIP;
+    rows.push(`<label class="nic-card${autoOn ? " on" : ""}" data-ip="">
+      <input type="radio" name="nicpick" value="" ${autoOn ? "checked" : ""}>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px">
+          <b>Auto (Semua Interface / Default OS)</b>
+          <span class="nic-badge virtual">Default</span>
+        </div>
+        <div class="faint" style="font-size:12px;margin-top:3px">Gunakan tabel routing bawaan sistem operasi tanpa mengunci ke 1 kartu jaringan tertentu.</div>
+      </div>
+    </label>`);
+    box.innerHTML = rows.join("");
+    for (const card of $$(".nic-card", box)) {
+      card.onclick = () => {
+        pickedIP = card.dataset.ip || "";
+        drawCards();
+      };
+    }
+  };
+  drawCards();
+
+  $("#nicRefBtn", m).onclick = async () => {
+    await refreshNICState();
+    drawCards();
+    toast("Daftar Network Adapter diperbarui");
+  };
+
+  const applyChoice = async (openScanner) => {
+    const nic = (S.nics || []).find((n) => n.ip === pickedIP);
+    const skip = $("#nicSkip", m).checked;
+    try {
+      await call("SetActiveNIC", pickedIP, nic ? nic.name : "", skip);
+      S.activeNIC = pickedIP;
+      S.activeNICName = nic ? nic.name : "";
+      if (S.settings) {
+        S.settings.bindIp = pickedIP;
+        S.settings.bindNic = S.activeNICName;
+        S.settings.skipStartupNic = skip;
+      }
+      renderSide();
+      closeModal();
+      toast(nic ? `Menggunakan adapter ${nic.name} (${nic.ip})` : "Menggunakan mode NIC: Auto (Default OS)");
+      if (openScanner) {
+        const range = nic ? nic.rangeHint : (S.nics?.[0]?.rangeHint || "10.0.0.1 - 10.0.0.254");
+        openSubnetScanModal(range, true);
+      }
+    } catch (e) {
+      $("#nicMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+
+  $("#nicApplyBtn", m).onclick = () => applyChoice(false);
+  $("#nicScanBtn", m).onclick = () => applyChoice(true);
+}
+
+async function openSubnetScanModal(initialTarget, autoStart) {
+  await refreshNICState();
+  S.creds = await call("Credentials").catch(() => []);
+  const activeNic = (S.nics || []).find((n) => n.ip === S.activeNIC) || (S.nics || [])[0];
+  const defTarget = initialTarget || (activeNic ? activeNic.rangeHint : "10.0.0.1 - 10.0.0.254");
+  let discovered = [];
+
+  const m = modal(`<h2>🔍 Scan Subnet Switch Aktif</h2>
+    <div class="body">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12.5px">
+        <span class="faint">Adapter Aktif:</span>
+        <span class="tag" style="color:#38bdf8;border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.1)">🔌 ${S.activeNIC ? `${esc(S.activeNICName || "NIC")} (${esc(S.activeNIC)})` : "Auto (Default OS)"}</span>
+        <button type="button" class="btn small" id="scChangeNic">Ganti NIC…</button>
+        ${(S.nics || []).length > 1 ? `<span class="faint" style="margin-left:4px">Isi cepat subnet:</span>` + (S.nics || []).slice(0, 3).map((n) => `<button type="button" class="btn small" data-fill-range="${esc(n.rangeHint)}">${esc(n.name)} (${esc(n.cidr)})</button>`).join("") : ""}
+      </div>
+      <div class="row" style="align-items:flex-end;margin-bottom:12px">
+        <label class="f" style="flex:1;margin:0"><span>Range IP atau Subnet CIDR yang akan di-scan (port SSH 22 / HTTPS 443 / HTTP 80)</span>
+          <input type="text" id="scTarget" class="mono" value="${esc(defTarget)}" placeholder="10.0.0.1 - 10.0.0.254 atau 10.0.0.0/24">
+        </label>
+        <button type="button" class="btn primary" id="scRunBtn" style="height:34px">🔍 Scan Sekarang</button>
+      </div>
+      <div id="scResults"><div class="panel"><div class="empty" style="padding:20px"><p class="muted">Klik <b>Scan Sekarang</b> untuk mencari perangkat switch yang aktif di subnet ini.</p></div></div></div>
+      <div id="scAddForm" style="display:none;margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft)">
+        <div class="row">
+          <label class="f"><span>Credentials</span><select id="scCred">${credOptions(sshCreds()[0]?.id)}</select></label>
+          <label class="f"><span>Site (opsional)</span><input type="text" id="scSite" value="${esc(S.site && S.site !== NO_SITE ? S.site : "")}" placeholder="e.g. Building-A"></label>
+        </div>
+        <div id="scNewCred" class="row" style="display:none">
+          <label class="f"><span>Username</span><input type="text" id="scUser" value="admin"></label>
+          <label class="f"><span>Password</span><input type="password" id="scPass"></label>
+        </div>
+      </div>
+      <div id="scMsg"></div>
+    </div>
+    <div class="foot">
+      <span class="grow"></span>
+      <button class="btn" data-close>Close</button>
+      <button class="btn primary" id="scAddBtn" style="display:none">Add Selected Switches</button>
+    </div>`, true);
+
+  $("#scChangeNic", m).onclick = () => { closeModal(); openNICModal(false); };
+  for (const b of $$("[data-fill-range]", m)) {
+    b.onclick = () => { $("#scTarget", m).value = b.dataset.fillRange; };
+  }
+  const scCred = $("#scCred", m);
+  const toggleCred = () => { $("#scNewCred", m).style.display = scCred.value === "__new" || !sshCreds().length ? "flex" : "none"; };
+  if (!sshCreds().length) scCred.value = "__new";
+  scCred.onchange = toggleCred;
+  toggleCred();
+
+  const runScan = async () => {
+    const target = $("#scTarget", m).value.trim();
+    const btn = $("#scRunBtn", m);
+    const resBox = $("#scResults", m);
+    if (!target) return;
+    btn.disabled = true;
+    btn.textContent = "Scanning…";
+    $("#scMsg", m).innerHTML = "";
+    resBox.innerHTML = `<div class="panel"><div class="empty" style="padding:24px"><h3>Scanning ${esc(target)}…</h3><p class="muted">Mengecek hingga 254 IP secara paralel pada port 22, 443, dan 80 (±2–3 detik)…</p></div></div>`;
+    try {
+      discovered = (await call("ScanSubnet", target)) || [];
+      if (!discovered.length) {
+        resBox.innerHTML = `<div class="panel"><div class="empty" style="padding:22px"><h3>Tidak ada switch ditemukan</h3><p class="muted">Tidak ada perangkat yang merespons pada port 22, 443, atau 80 di <b>${esc(target)}</b>. Pastikan kabel LAN / adapter NIC sudah benar.</p></div></div>`;
+        $("#scAddForm", m).style.display = "none";
+        $("#scAddBtn", m).style.display = "none";
+        return;
+      }
+      const newCount = discovered.filter((d) => !d.existingId).length;
+      const famLabel = (f) => ({ "aos-cx": "Aruba AOS-CX", "aos-s": "Aruba AOS-S", "instant-on": "Web / Instant On" }[f] || "Auto-detect (SSH)");
+      resBox.innerHTML = `<div class="panel"><div style="max-height:240px;overflow:auto"><table>
+        <thead><tr><th style="width:32px"><input type="checkbox" id="scAll" ${newCount ? "checked" : ""}></th><th>IP Address</th><th>Open Ports</th><th>Detected Type</th><th>Switch Name (opsional)</th></tr></thead>
+        <tbody>${discovered.map((h, i) => `<tr>
+          <td><input type="checkbox" class="sc-pick" data-idx="${i}" ${h.existingId ? "disabled" : "checked"}></td>
+          <td class="mono"><b>${esc(h.ip)}</b></td>
+          <td class="mono">${(h.ports || []).map((p) => `<span class="tag">${p === 22 ? "SSH 22" : p === 443 ? "HTTPS 443" : "HTTP 80"}</span>`).join(" ")}</td>
+          <td>${h.existingId ? `<span class="sev okchip">Sudah ada (${esc(h.existingName)})</span>` : `<span class="vchip proav" title="${esc(h.sshBanner || "")}">${esc(famLabel(h.familyGuess))}</span>`}</td>
+          <td>${h.existingId ? `<span class="faint">—</span>` : `<input type="text" class="sc-name" data-idx="${i}" placeholder="Auto dari hostname" style="height:26px;font-size:12.5px;width:160px">`}</td>
+        </tr>`).join("")}</tbody></table></div>
+        <div class="faint" style="padding:8px 14px;font-size:12px">Ditemukan ${discovered.length} perangkat aktif (${newCount} perangkat baru siap ditambahkan).</div></div>`;
+      const allCb = $("#scAll", m);
+      if (allCb) {
+        allCb.onchange = () => {
+          for (const cb of $$(".sc-pick", m)) if (!cb.disabled) cb.checked = allCb.checked;
+        };
+      }
+      $("#scAddForm", m).style.display = newCount ? "" : "none";
+      $("#scAddBtn", m).style.display = newCount ? "" : "none";
+    } catch (e) {
+      resBox.innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🔍 Scan Sekarang";
+    }
+  };
+
+  $("#scRunBtn", m).onclick = runScan;
+  $("#scTarget", m).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runScan(); } });
+
+  $("#scAddBtn", m).onclick = async () => {
+    const picks = $$(".sc-pick:checked", m).map((cb) => +cb.dataset.idx);
+    if (!picks.length) {
+      $("#scMsg", m).innerHTML = `<div class="msg err">Pilih minimal 1 switch untuk ditambahkan.</div>`;
+      return;
+    }
+    try {
+      let cid = scCred.value;
+      if (cid === "__new") {
+        cid = (await call("SaveCredential", { name: $("#scUser", m).value.trim(), username: $("#scUser", m).value.trim(), password: $("#scPass", m).value })).id;
+      }
+      const site = $("#scSite", m).value.trim();
+      let added = 0;
+      for (const idx of picks) {
+        const h = discovered[idx];
+        const nameInp = $(`.sc-name[data-idx="${idx}"]`, m);
+        const customName = nameInp ? nameInp.value.trim() : "";
+        await call("SaveSwitch", {
+          name: customName,
+          host: h.ip,
+          port: h.webOnly ? (h.ports.includes(443) ? 443 : 80) : 22,
+          web: !!h.webOnly,
+          family: h.familyGuess || "",
+          credentialId: cid,
+          site,
+        });
+        added++;
+      }
+      closeModal();
+      toast(`Berhasil menambahkan ${added} switch. Sedang membaca data…`);
+      location.hash = "#/switches";
+    } catch (e) {
+      $("#scMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+
+  if (autoStart) runScan();
+}
+
+// ---------- switch configuration templates (IP-free provisioning) ----------
+
+async function openSaveTemplateModal(switchId) {
+  const sw = S.detail?.id === switchId ? S.detail : (S.dash?.switches || []).find((x) => x.id === switchId);
+  const snap = S.detail?.id === switchId ? S.detail.snapshot : null;
+  const baseName = sw ? (sw.name || sw.summary?.hostname || sw.host) : "Switch";
+  const vlanCount = snap?.vlans?.length || sw?.summary?.vlans || 0;
+  const portCount = snap?.ports?.length || sw?.summary?.portsTotal || 0;
+
+  const m = modal(`<h2>💾 Save Switch as Template</h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Simpan konfigurasi <b>${esc(baseName)}</b> sebagai Template siap pakai untuk switch baru. <b>IP Address management, Default Gateway, dan Hostname lama otomatis dikosongkan</b> agar tidak bentrok.</p>
+      <div class="msg okm" style="margin-bottom:12px">
+        ✅ Tercakup: <b>${vlanCount} VLAN</b>, <b>IGMP Snooping</b>, <b>Dante QoS / EEE</b>, <b>Jumbo MTU</b>, <b>STP / NTP</b>, dan <b>${portCount} Port mapping</b>.<br>
+        🛡️ Dikosongkan otomatis: <code>ip address</code>, <code>ip default-gateway</code>, <code>hostname</code>, MAC &amp; SSH keys.
+      </div>
+      <label class="f"><span>Nama Template</span><input type="text" id="tplName" value="${esc(baseName)} Template" autofocus></label>
+      <label class="f"><span>Catatan / Deskripsi (opsional)</span><input type="text" id="tplNotes" placeholder="Contoh: Standar Switch 24-Port Audio Dante + VLAN"></label>
+      <div id="tplSaveMsg"></div>
+    </div>
+    <div class="foot">
+      <span class="grow"></span>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn primary" id="tplSaveBtn">💾 Simpan Template</button>
+    </div>`);
+
+  $("#tplSaveBtn", m).onclick = async () => {
+    const name = $("#tplName", m).value.trim();
+    const notes = $("#tplNotes", m).value.trim();
+    if (!name) {
+      $("#tplSaveMsg", m).innerHTML = `<div class="msg err">Masukkan nama template.</div>`;
+      return;
+    }
+    try {
+      const saved = await call("SaveSwitchAsTemplate", switchId, name, notes);
+      closeModal();
+      toast(`Template "${saved.name}" berhasil disimpan (${saved.vlans?.length || 0} VLAN, tanpa IP address).`);
+    } catch (e) {
+      $("#tplSaveMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+async function openApplyTemplateModal(switchId) {
+  const templates = (await call("Templates").catch(() => [])) || [];
+  if (!templates.length) {
+    toast("Belum ada template. Klik 'Save Template' pada salah satu switch atau buat di menu Templates.", true);
+    openTemplatesManagerModal();
+    return;
+  }
+  const sw = S.detail?.id === switchId ? S.detail : (S.dash?.switches || []).find((x) => x.id === switchId);
+  if (!sw) return;
+  const snap = S.detail?.id === switchId ? S.detail.snapshot : null;
+  const swName = sw.name || snap?.facts?.hostname || sw.host;
+  const isCX = (snap?.family || sw.family) === "aos-cx";
+
+  // Detect probable uplink ports via LLDP neighbors so the user can protect them with 1 checkbox
+  const uplinkPorts = [];
+  for (const nb of snap?.neighbors || []) {
+    if (/bridge|switch|router/i.test(nb.capabilities || "") && nb.localPort && !uplinkPorts.includes(nb.localPort)) {
+      uplinkPorts.push(nb.localPort);
+    }
+  }
+
+  const m = modal(`<h2>🧩 Apply Config Template — ${esc(swName)}</h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Terapkan template konfigurasi ke <b>${esc(swName)}</b> (<span class="mono">${esc(sw.host)}</span>). IP address switch ini <b>tidak akan diubah</b> sehingga koneksi tetap aman.</p>
+      <div class="row">
+        <label class="f" style="flex:1.3"><span>Pilih Template</span>
+          <select id="atTpl">${templates.map((t) => `<option value="${esc(t.id)}">${esc(t.name)} (${t.vlans?.length || 0} VLANs${t.sourceModel ? " · " + esc(t.sourceModel) : ""})</option>`).join("")}</select>
+        </label>
+        <label class="f" style="flex:1"><span>Hostname Baru (kosongkan jika tidak ganti)</span>
+          <input type="text" id="atHost" placeholder="Tetap: ${esc(snap?.facts?.hostname || swName)}">
+        </label>
+      </div>
+      <div id="atSummary" class="faint" style="font-size:12px;margin:-4px 0 12px"></div>
+
+      <div style="font-size:12.5px;font-weight:500;margin-bottom:6px">Komponen yang akan diterapkan ke switch ini:</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        <label class="check"><input type="checkbox" id="atVlans" checked> <span><b>Daftar VLAN &amp; Nama VLAN</b> <span class="faint">(tanpa menyentuh IP address VLAN)</span></span></label>
+        <label class="check"><input type="checkbox" id="atIgmp" checked> <span><b>IGMP Snooping</b> sesuai pengaturan VLAN di template</span></label>
+        <label class="check" style="margin-left:22px"><input type="checkbox" id="atQuerier"> <span>Jadikan switch ini <b>IGMP Querier</b> <span class="faint">(⚠️ biarkan OFF untuk switch baru/edge agar tidak bentrok dengan Core)</span></span></label>
+        <label class="check"><input type="checkbox" id="atDante" checked> <span><b>Dante QoS &amp; Audio Profile</b> <span class="faint">(DSCP Trust, DSCP 56→7 &amp; 46→6, Strict Priority, Disable EEE)</span></span></label>
+        <label class="check"><input type="checkbox" id="atJumbo"> <span><b>Enable Jumbo Frames / MTU</b> (<code>${isCX ? "mtu 9198" : "jumbo"}</code>) <span class="faint">— aktifkan jika dipakai untuk Video-over-IP (NDI / NAS)</span></span></label>
+        <label class="check"><input type="checkbox" id="atSys" checked> <span><b>Global System Settings</b> <span class="faint">(Spanning Tree &amp; NTP Server)</span></span></label>
+        <label class="check"><input type="checkbox" id="atPortVlans"> <span><b>Clone Port VLAN Assignments (Untagged / Tagged per port)</b> <span class="faint">— otomatis memetakan nomor port yang cocok</span></span></label>
+        <label class="check"><input type="checkbox" id="atPortNames"> <span><b>Clone Port Descriptions / Names</b></span></label>
+      </div>
+
+      <label class="f"><span>Jangan ubah port berikut (Skip Uplink / Management Port, pisahkan dengan koma)</span>
+        <input type="text" id="atSkip" class="mono" value="${esc(uplinkPorts.join(", "))}" placeholder="Contoh: 1/1/24 atau 24">
+      </label>
+      <label class="check"><input type="checkbox" id="atSave" checked> Save to startup config (write memory)</label>
+      <div id="atMsg"></div>
+    </div>
+    <div class="foot">
+      <span class="grow"></span>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn primary" id="atPreviewBtn">Review CLI changes</button>
+    </div>`, true);
+
+  const syncTplInfo = () => {
+    const t = templates.find((x) => x.id === $("#atTpl", m).value) || templates[0];
+    if (!t) return;
+    $("#atDante", m).checked = !!t.danteQos;
+    $("#atJumbo", m).checked = !!t.jumboMtu;
+    const vList = (t.vlans || []).map((v) => `${v.id}${v.name ? " (" + v.name + ")" : ""}`).slice(0, 8).join(", ");
+    $("#atSummary", m).innerHTML = `${t.notes ? `<b>${esc(t.notes)}</b> · ` : ""}VLANs: <span class="mono">${esc(vList)}${(t.vlans?.length || 0) > 8 ? "…" : ""}</span> · ${t.ports?.length || 0} ports di template`;
+  };
+  $("#atTpl", m).onchange = syncTplInfo;
+  syncTplInfo();
+
+  $("#atPreviewBtn", m).onclick = async () => {
+    const skipPorts = $("#atSkip", m).value.split(",").map((s) => s.trim()).filter(Boolean);
+    const req = {
+      templateId: $("#atTpl", m).value,
+      newHostname: $("#atHost", m).value.trim(),
+      includeVlans: $("#atVlans", m).checked,
+      includeIgmp: $("#atIgmp", m).checked,
+      igmpQuerier: $("#atQuerier", m).checked,
+      includeDanteQos: $("#atDante", m).checked,
+      jumboMtu: $("#atJumbo", m).checked,
+      includeSystem: $("#atSys", m).checked,
+      includePortVlans: $("#atPortVlans", m).checked,
+      includePortNames: $("#atPortNames", m).checked,
+      skipPorts,
+      save: $("#atSave", m).checked,
+    };
+    try {
+      const cmds = await call("PreviewTemplate", switchId, req);
+      closeModal();
+      const note = `🛡️ <b>Aman dari konflik IP:</b> Tidak ada perintah <code>ip address</code> atau <code>ip default-gateway</code> di dalam template ini.`;
+      confirmCommands(req, cmds, "ApplyTemplate", note);
+    } catch (e) {
+      $("#atMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+}
+
+async function openTemplatesManagerModal() {
+  let list = (await call("Templates").catch(() => [])) || [];
+  const m = modal(`<h2>🧩 Switch Config Templates (No-IP Provisioning)</h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Template menyimpan standar VLAN, IGMP Snooping, Dante QoS, Jumbo MTU, dan Port mapping <b>tanpa IP address</b> sehingga aman di-restore ke switch baru mana pun.</p>
+      <div id="tmList"></div>
+      <details style="margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:10px 14px;background:rgba(15,23,42,.45)">
+        <summary style="cursor:pointer;font-weight:500">➕ Buat Template Baru dari Paste Running-Config / File .cfg</summary>
+        <div style="margin-top:10px">
+          <div class="row">
+            <label class="f"><span>Nama Template</span><input type="text" id="tmNewName" placeholder="Contoh: Standar Stage 24-Port Dante"></label>
+            <label class="f"><span>Catatan</span><input type="text" id="tmNewNotes" placeholder="VLAN Audio + Dante QoS"></label>
+          </div>
+          <label class="f"><span>Paste isi <code>show running-config</code> (AOS-CX atau AOS-S) — semua baris <code>ip address</code> &amp; <code>hostname</code> akan dibuang otomatis:</span>
+            <textarea id="tmNewCfg" class="mono" rows="7" placeholder="vlan 20&#10;   name Audio&#10;   ip igmp&#10;qos trust dscp..."></textarea>
+          </label>
+          <button type="button" class="btn primary small" id="tmCreateBtn">Simpan Template dari Config</button>
+        </div>
+      </details>
+      <div id="tmMsg" style="margin-top:8px"></div>
+    </div>
+    <div class="foot">
+      <span class="grow"></span>
+      <button class="btn" data-close>Close</button>
+    </div>`, true);
+
+  const draw = () => {
+    const box = $("#tmList", m);
+    if (!box) return;
+    if (!list.length) {
+      box.innerHTML = `<div class="panel"><div class="empty" style="padding:20px"><h3>Belum ada Template</h3><p class="muted">Buka salah satu switch lalu klik <b>💾 Save Template</b>, atau buat dari teks <code>running-config</code> di bawah.</p></div></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="panel"><table><thead><tr><th>Template</th><th>Source</th><th>VLANs</th><th>Features</th><th>Ports</th><th></th></tr></thead><tbody>
+      ${list.map((t) => `<tr>
+        <td><b>${esc(t.name)}</b>${t.notes ? `<div class="faint" style="font-size:12px">${esc(t.notes)}</div>` : ""}</td>
+        <td class="faint">${esc(t.sourceModel || t.sourceFamily || "Custom")}</td>
+        <td class="mono">${(t.vlans || []).map((v) => v.id).join(", ") || "—"}</td>
+        <td>
+          ${t.danteQos ? `<span class="vchip proav">Dante QoS</span> ` : ""}
+          ${t.jumboMtu ? `<span class="vchip">Jumbo MTU</span> ` : ""}
+          ${(t.vlans || []).some((v) => v.igmpSnooping) ? `<span class="vchip">IGMP</span>` : ""}
+        </td>
+        <td class="num">${t.ports?.length || 0}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn small danger" data-del-tpl="${esc(t.id)}">${ICON.trash}</button>
+        </td>
+      </tr>`).join("")}
+    </tbody></table></div>`;
+    for (const b of $$("[data-del-tpl]", box)) {
+      b.onclick = async () => {
+        await call("DeleteTemplate", b.dataset.delTpl);
+        list = (await call("Templates").catch(() => [])) || [];
+        draw();
+        toast("Template dihapus");
+      };
+    }
+  };
+  draw();
+
+  $("#tmCreateBtn", m).onclick = async () => {
+    const name = $("#tmNewName", m).value.trim();
+    const notes = $("#tmNewNotes", m).value.trim();
+    const cfg = $("#tmNewCfg", m).value.trim();
+    if (!name || !cfg) {
+      $("#tmMsg", m).innerHTML = `<div class="msg err">Masukkan Nama Template dan isi konfigurasi.</div>`;
+      return;
+    }
+    try {
+      const saved = await call("SaveConfigTextAsTemplate", name, notes, cfg);
+      $("#tmNewName", m).value = "";
+      $("#tmNewNotes", m).value = "";
+      $("#tmNewCfg", m).value = "";
+      $("#tmMsg", m).innerHTML = `<div class="msg okm">Template "${esc(saved.name)}" berhasil dibuat (${saved.vlans?.length || 0} VLAN, ${saved.ports?.length || 0} port, 0 IP address).</div>`;
+      list = (await call("Templates").catch(() => [])) || [];
+      draw();
+    } catch (e) {
+      $("#tmMsg", m).innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+    }
+  };
+}
+
 async function boot() {
   try {
     await start();
@@ -4569,6 +5049,7 @@ async function start() {
   const plat = await call("Platform");
   if (plat === "darwin") document.documentElement.style.setProperty("--top", "22px");
   S.settings = await call("GetSettings");
+  await refreshNICState();
   // never leave the window empty without a word if the first load is slow
   const slow = setTimeout(() => { $("#main").innerHTML = `<div class="page"><div class="empty"><h3>Loading the dashboard…</h3></div></div>`; }, 2000);
   S.dash = await call("GetDashboard").finally(() => clearTimeout(slow));
@@ -4582,5 +5063,8 @@ async function start() {
   setInterval(() => { if (!S.modalOpen && (S.route[0] || "dashboard") === "dashboard") renderDashboard(); }, 30000);
   setupIdleLock();
   route();
+  if (!S.settings?.skipStartupNic) {
+    setTimeout(() => openNICModal(true), 80);
+  }
 }
 boot();

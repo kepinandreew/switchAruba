@@ -15,6 +15,7 @@ import (
 	"myswitch/internal/aruba"
 	"myswitch/internal/firmware"
 	"myswitch/internal/ionlocal"
+	"myswitch/internal/netbind"
 	"myswitch/internal/sshx"
 	"myswitch/internal/store"
 )
@@ -240,7 +241,7 @@ func (m *Manager) ping(sw store.Switch) {
 	default:
 		start := time.Now()
 		var conn net.Conn
-		conn, err = net.DialTimeout("tcp", net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port)), 3*time.Second)
+		conn, err = netbind.DialTimeout("tcp", net.JoinHostPort(sw.Host, strconv.Itoa(sw.Port)), 3*time.Second)
 		lat = int(time.Since(start).Milliseconds())
 		if err == nil {
 			conn.Close()
@@ -1143,6 +1144,87 @@ func (m *Manager) RunCableDiag(id, port string) (aruba.CableDiagResult, error) {
 		return runErr
 	})
 	return res, err
+}
+
+// ExtractSwitchTemplate creates a clean IP-free SwitchTemplate from a collected switch.
+func (m *Manager) ExtractSwitchTemplate(id, name, notes string) (aruba.SwitchTemplate, error) {
+	sw, ok := m.st.Switch(id)
+	if !ok {
+		return aruba.SwitchTemplate{}, errors.New("switch not found")
+	}
+	m.mu.Lock()
+	snap := m.snaps[id]
+	m.mu.Unlock()
+	if snap == nil {
+		return aruba.SwitchTemplate{}, errors.New("collect data from this switch first before saving a template")
+	}
+	if strings.TrimSpace(name) == "" {
+		name = displayName(sw, snap) + " Template"
+	}
+	tpl := aruba.ExtractTemplateFromSnapshot(name, notes, snap)
+	return m.st.SaveTemplate(tpl)
+}
+
+// PreviewTemplate returns the CLI lines a SwitchTemplate application would send to switch id.
+func (m *Manager) PreviewTemplate(id string, req aruba.TemplateApplyRequest) ([]string, error) {
+	sw, ok := m.st.Switch(id)
+	if !ok {
+		return nil, errors.New("switch not found")
+	}
+	tpl, ok := m.st.Template(req.TemplateID)
+	if !ok {
+		return nil, errors.New("template not found")
+	}
+	fam := m.family(id, sw)
+	if fam == "" || fam == aruba.FamilyAuto {
+		if tpl.SourceFamily == aruba.FamilyAOSCX || tpl.SourceFamily == aruba.FamilyAOSS {
+			fam = tpl.SourceFamily
+		} else {
+			fam = aruba.FamilyAOSCX
+		}
+	}
+	m.mu.Lock()
+	snap := m.snaps[id]
+	m.mu.Unlock()
+	return aruba.BuildTemplateCommands(fam, snap, tpl, req)
+}
+
+// ApplyTemplate applies a SwitchTemplate to switch id over SSH, then re-collects the switch.
+func (m *Manager) ApplyTemplate(id string, req aruba.TemplateApplyRequest) (aruba.ApplyResult, error) {
+	tpl, ok := m.st.Template(req.TemplateID)
+	if !ok {
+		return aruba.ApplyResult{}, errors.New("template not found")
+	}
+	cmds, err := m.PreviewTemplate(id, req)
+	if err != nil {
+		return aruba.ApplyResult{}, err
+	}
+	m.mu.Lock()
+	snap := m.snaps[id]
+	m.mu.Unlock()
+
+	var res aruba.ApplyResult
+	var sentCmds []string
+	err = m.withSession(id, 4*time.Minute, func(ctx context.Context, s *sshx.Session, detected aruba.Family) error {
+		useCmds := cmds
+		if detected == aruba.FamilyAOSCX || detected == aruba.FamilyAOSS {
+			if rebuilt, rerr := aruba.BuildTemplateCommands(detected, snap, tpl, req); rerr == nil {
+				useCmds = rebuilt
+			}
+		}
+		sentCmds = useCmds
+		res = aruba.ApplyCommands(ctx, s, useCmds)
+		return nil
+	})
+	if len(sentCmds) == 0 {
+		sentCmds = cmds
+	}
+	m.noteApplied(id, sentCmds, res)
+	if err != nil {
+		return res, err
+	}
+	go m.Enqueue(id)
+	return res, nil
 }
 
 func (m *Manager) portAccessCommands(id string, ch aruba.PortAccessChange) ([]string, error) {

@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"myswitch/internal/netbind"
 )
 
 // ErrHostKeyMismatch is returned when the switch presents a different host key
@@ -165,8 +167,7 @@ func Dial(ctx context.Context, o Options) (*Session, error) {
 	}
 	var seen string
 	addr := net.JoinHostPort(o.Host, strconv.Itoa(o.Port))
-	d := net.Dialer{Timeout: o.Timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := netbind.DialContext(ctx, "tcp", addr, o.Timeout)
 	if err != nil {
 		return nil, err
 	}

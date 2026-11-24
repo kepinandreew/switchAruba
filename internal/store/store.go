@@ -126,6 +126,11 @@ type Settings struct {
 	// RebootPause is how long, in seconds, a firmware update waits after a
 	// switch is back before the next switch reboots (issue #34).
 	RebootPause int `json:"rebootPause"`
+	// BindIP and BindNIC record the preferred local network adapter (Ethernet / Wi-Fi)
+	// used for scanning and connecting to switches.
+	BindIP         string `json:"bindIp,omitempty"`
+	BindNIC        string `json:"bindNic,omitempty"`
+	SkipStartupNIC bool   `json:"skipStartupNic,omitempty"`
 }
 
 func DefaultSettings() Settings {
@@ -138,10 +143,11 @@ type Point struct {
 }
 
 type data struct {
-	Switches    []Switch         `json:"switches"`
-	Credentials []Credential     `json:"credentials"`
-	Settings    Settings         `json:"settings"`
-	Layout      map[string]Point `json:"layout"`
+	Switches    []Switch               `json:"switches"`
+	Credentials []Credential           `json:"credentials"`
+	Settings    Settings               `json:"settings"`
+	Layout      map[string]Point       `json:"layout"`
+	Templates   []aruba.SwitchTemplate `json:"templates,omitempty"`
 }
 
 type Store struct {
@@ -923,4 +929,72 @@ func NormalizeTags(in []string) []string {
 		}
 	}
 	return out
+}
+
+// ---- switch config templates ----
+
+func (s *Store) Templates() []aruba.SwitchTemplate {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]aruba.SwitchTemplate, len(s.d.Templates))
+	copy(out, s.d.Templates)
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func (s *Store) Template(id string) (aruba.SwitchTemplate, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.d.Templates {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return aruba.SwitchTemplate{}, false
+}
+
+func (s *Store) SaveTemplate(tpl aruba.SwitchTemplate) (aruba.SwitchTemplate, error) {
+	tpl.Name = strings.TrimSpace(tpl.Name)
+	if tpl.Name == "" {
+		return tpl, errors.New("template name is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tpl.ID == "" || !validID(tpl.ID) {
+		tpl.ID = NewID()
+		if tpl.CreatedAt.IsZero() {
+			tpl.CreatedAt = time.Now()
+		}
+		s.d.Templates = append(s.d.Templates, tpl)
+		return tpl, s.saveLocked()
+	}
+	for i := range s.d.Templates {
+		if s.d.Templates[i].ID == tpl.ID {
+			if tpl.CreatedAt.IsZero() {
+				tpl.CreatedAt = s.d.Templates[i].CreatedAt
+			}
+			s.d.Templates[i] = tpl
+			return tpl, s.saveLocked()
+		}
+	}
+	if tpl.CreatedAt.IsZero() {
+		tpl.CreatedAt = time.Now()
+	}
+	s.d.Templates = append(s.d.Templates, tpl)
+	return tpl, s.saveLocked()
+}
+
+func (s *Store) DeleteTemplate(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.d.Templates[:0]
+	for _, t := range s.d.Templates {
+		if t.ID != id {
+			out = append(out, t)
+		}
+	}
+	s.d.Templates = out
+	return s.saveLocked()
 }

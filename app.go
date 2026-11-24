@@ -17,6 +17,7 @@ import (
 
 	"myswitch/internal/aruba"
 	"myswitch/internal/core"
+	"myswitch/internal/netbind"
 	"myswitch/internal/store"
 )
 
@@ -49,6 +50,9 @@ func (a *App) startup(ctx context.Context) {
 	if err != nil {
 		runtime.MessageDialog(ctx, runtime.MessageDialogOptions{Type: runtime.ErrorDialog, Title: "MySwitch", Message: "Can't open data folder: " + err.Error()})
 		os.Exit(1)
+	}
+	if set := a.st.Settings(); set.BindIP != "" {
+		netbind.SetBindIP(set.BindIP)
 	}
 	if !a.st.Locked() {
 		a.mgr = core.New(a.st, a.emit)
@@ -633,4 +637,95 @@ func (a *App) SearchConfigs(query string, useRegex bool, site string) ([]core.Co
 // RunCableDiag runs an on-demand copper TDR cable diagnostic test on a single port.
 func (a *App) RunCableDiag(id, port string) (aruba.CableDiagResult, error) {
 	return a.mgr.RunCableDiag(id, port)
+}
+
+// ---- network interface (NIC) selection & fast subnet discovery ----
+
+func (a *App) ListNICs() []netbind.NICInfo {
+	return netbind.ListNICs()
+}
+
+func (a *App) GetActiveNIC() string {
+	return netbind.GetBindIP()
+}
+
+func (a *App) SetActiveNIC(ip, name string, skipStartup bool) error {
+	netbind.SetBindIP(ip)
+	if a.st == nil {
+		return nil
+	}
+	set := a.st.Settings()
+	set.BindIP = netbind.GetBindIP()
+	set.BindNIC = strings.TrimSpace(name)
+	set.SkipStartupNIC = skipStartup
+	return a.st.SaveSettings(set)
+}
+
+func (a *App) ScanSubnet(target string) ([]netbind.DiscoveredHost, error) {
+	existing := map[string][2]string{}
+	if a.st != nil {
+		for _, sw := range a.st.Switches() {
+			lbl := sw.Name
+			if lbl == "" {
+				lbl = sw.Host
+			}
+			existing[sw.Host] = [2]string{sw.ID, lbl}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return netbind.ScanSubnet(ctx, target, existing)
+}
+
+// ---- switch configuration templates (IP-free provisioning) ----
+
+func (a *App) Templates() []aruba.SwitchTemplate {
+	if a.st == nil {
+		return nil
+	}
+	return a.st.Templates()
+}
+
+func (a *App) SaveSwitchAsTemplate(switchID, name, notes string) (aruba.SwitchTemplate, error) {
+	tpl, err := a.mgr.ExtractSwitchTemplate(switchID, name, notes)
+	if err == nil {
+		a.emit("")
+	}
+	return tpl, err
+}
+
+func (a *App) SaveConfigTextAsTemplate(name, notes, rawCfg string) (aruba.SwitchTemplate, error) {
+	tpl, err := aruba.ExtractTemplateFromConfigText(name, notes, rawCfg)
+	if err != nil {
+		return tpl, err
+	}
+	saved, err := a.st.SaveTemplate(tpl)
+	if err == nil {
+		a.emit("")
+	}
+	return saved, err
+}
+
+func (a *App) SaveTemplate(tpl aruba.SwitchTemplate) (aruba.SwitchTemplate, error) {
+	saved, err := a.st.SaveTemplate(tpl)
+	if err == nil {
+		a.emit("")
+	}
+	return saved, err
+}
+
+func (a *App) DeleteTemplate(id string) error {
+	err := a.st.DeleteTemplate(id)
+	if err == nil {
+		a.emit("")
+	}
+	return err
+}
+
+func (a *App) PreviewTemplate(switchID string, req aruba.TemplateApplyRequest) ([]string, error) {
+	return a.mgr.PreviewTemplate(switchID, req)
+}
+
+func (a *App) ApplyTemplate(switchID string, req aruba.TemplateApplyRequest) (aruba.ApplyResult, error) {
+	return a.mgr.ApplyTemplate(switchID, req)
 }

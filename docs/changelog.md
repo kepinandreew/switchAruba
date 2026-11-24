@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.32
+- **Startup Network Adapter (NIC / Ethernet / Wi-Fi) Picker & Fast Subnet Discovery Scanner**:
+  - Opens a quick **Network Adapter Picker** on startup (and via the clickable `🔌 NIC` pill in the bottom-left sidebar) listing all active Ethernet, Wi-Fi, and virtual adapters with their IP, CIDR subnet, scan range, and MAC address.
+  - Binds outbound SSH, HTTPS/HTTP, and TCP probes to the selected adapter (`netbind.DialContext`) for multi-NIC / multi-Ethernet workstations, and provides a 1-click **Gunakan & Scan Subnet Ini** fast parallel scanner (ports `22`, `443`, `80` with automatic Aruba AOS-CX / AOS-S / Instant On detection).
+- **IP-Free Switch Config Templates (Zero IP Conflict Provisioning)**:
+  - Save any collected switch's setup as a reusable **Template** (`💾 Save Template`) or create one from pasted `running-config` text (`🧩 Templates`), automatically stripping all `ip address`, `ip default-gateway`, `hostname`, MACs, and credentials.
+  - Apply templates (`🧩 Apply Template`) to new or replacement AOS-CX and AOS-S switches (even across families/models) with selectable sections (VLANs, IGMP Snooping, optional IGMP Querier, Dante QoS, Jumbo MTU, STP/NTP, Port VLANs, Port Names), uplink port protection (`SkipPorts`), optional new hostname, and full CLI preview.
+- **Optional Jumbo Frames / MTU Toggle (`mtu 9198` / `jumbo`)**:
+  - Added an optional **Enable Jumbo Frames / MTU** checkbox to both the **Aruba Dante AV Profile** modal and **Apply Config Template** modal for mixed Dante Audio + Video-over-IP (NDI / NAS) networks.
+
 ## 1.0.31
 - **macOS Apple Silicon (M1/M2/M3/M4) & Safari/WKWebView Startup Fix**:
   - Avoids the Wails macOS `WindowStartState: Maximised` + `TitleBarHiddenInset` initial WebKit layer race condition that could leave the macOS window blank on first launch.

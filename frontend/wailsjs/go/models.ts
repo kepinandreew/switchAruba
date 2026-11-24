@@ -197,6 +197,7 @@ export namespace aruba {
 	    igmpSnooping: boolean;
 	    igmpQuerier: boolean;
 	    disableEee: boolean;
+	    jumboMtu?: boolean;
 	    save: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -214,6 +215,7 @@ export namespace aruba {
 	        this.igmpSnooping = source["igmpSnooping"];
 	        this.igmpQuerier = source["igmpQuerier"];
 	        this.disableEee = source["disableEee"];
+	        this.jumboMtu = source["jumboMtu"];
 	        this.save = source["save"];
 	    }
 	}
@@ -1056,6 +1058,137 @@ export namespace aruba {
 		    }
 		    return a;
 		}
+	}
+	
+	
+	export class TemplatePort {
+	    name: string;
+	    description?: string;
+	    mode?: string;
+	    nativeVlan?: number;
+	    taggedVlans?: number[];
+	    qosTrust?: string;
+	    eeeOff?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplatePort(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.mode = source["mode"];
+	        this.nativeVlan = source["nativeVlan"];
+	        this.taggedVlans = source["taggedVlans"];
+	        this.qosTrust = source["qosTrust"];
+	        this.eeeOff = source["eeeOff"];
+	    }
+	}
+	export class TemplateVLAN {
+	    id: number;
+	    name: string;
+	    igmpSnooping?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateVLAN(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.igmpSnooping = source["igmpSnooping"];
+	    }
+	}
+	export class SwitchTemplate {
+	    id: string;
+	    name: string;
+	    notes?: string;
+	    sourceModel?: string;
+	    sourceFamily?: string;
+	    // Go type: time
+	    createdAt: any;
+	    vlans: TemplateVLAN[];
+	    ports?: TemplatePort[];
+	    danteQos?: boolean;
+	    jumboMtu?: boolean;
+	    stpEnabled?: boolean;
+	    timezone?: string;
+	    ntpServers?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SwitchTemplate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.notes = source["notes"];
+	        this.sourceModel = source["sourceModel"];
+	        this.sourceFamily = source["sourceFamily"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.vlans = this.convertValues(source["vlans"], TemplateVLAN);
+	        this.ports = this.convertValues(source["ports"], TemplatePort);
+	        this.danteQos = source["danteQos"];
+	        this.jumboMtu = source["jumboMtu"];
+	        this.stpEnabled = source["stpEnabled"];
+	        this.timezone = source["timezone"];
+	        this.ntpServers = source["ntpServers"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TemplateApplyRequest {
+	    templateId: string;
+	    newHostname?: string;
+	    includeVlans: boolean;
+	    includeIgmp: boolean;
+	    igmpQuerier: boolean;
+	    includeDanteQos: boolean;
+	    jumboMtu: boolean;
+	    includePortVlans: boolean;
+	    includePortNames: boolean;
+	    includeSystem: boolean;
+	    skipPorts?: string[];
+	    save: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateApplyRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.templateId = source["templateId"];
+	        this.newHostname = source["newHostname"];
+	        this.includeVlans = source["includeVlans"];
+	        this.includeIgmp = source["includeIgmp"];
+	        this.igmpQuerier = source["igmpQuerier"];
+	        this.includeDanteQos = source["includeDanteQos"];
+	        this.jumboMtu = source["jumboMtu"];
+	        this.includePortVlans = source["includePortVlans"];
+	        this.includePortNames = source["includePortNames"];
+	        this.includeSystem = source["includeSystem"];
+	        this.skipPorts = source["skipPorts"];
+	        this.save = source["save"];
+	    }
 	}
 	
 	
@@ -2344,6 +2477,59 @@ export namespace main {
 
 }
 
+export namespace netbind {
+	
+	export class DiscoveredHost {
+	    ip: string;
+	    ports: number[];
+	    familyGuess: string;
+	    webOnly: boolean;
+	    sshBanner?: string;
+	    existingId?: string;
+	    existingName?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveredHost(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.ports = source["ports"];
+	        this.familyGuess = source["familyGuess"];
+	        this.webOnly = source["webOnly"];
+	        this.sshBanner = source["sshBanner"];
+	        this.existingId = source["existingId"];
+	        this.existingName = source["existingName"];
+	    }
+	}
+	export class NICInfo {
+	    name: string;
+	    ip: string;
+	    cidr: string;
+	    maskBits: number;
+	    rangeHint: string;
+	    mac: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NICInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.ip = source["ip"];
+	        this.cidr = source["cidr"];
+	        this.maskBits = source["maskBits"];
+	        this.rangeHint = source["rangeHint"];
+	        this.mac = source["mac"];
+	        this.kind = source["kind"];
+	    }
+	}
+
+}
+
 export namespace sshopen {
 	
 	export class Client {
@@ -2533,6 +2719,9 @@ export namespace store {
 	    noUpdateCheck: boolean;
 	    autoPortNames: boolean;
 	    rebootPause: number;
+	    bindIp?: string;
+	    bindNic?: string;
+	    skipStartupNic?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -2561,6 +2750,9 @@ export namespace store {
 	        this.noUpdateCheck = source["noUpdateCheck"];
 	        this.autoPortNames = source["autoPortNames"];
 	        this.rebootPause = source["rebootPause"];
+	        this.bindIp = source["bindIp"];
+	        this.bindNic = source["bindNic"];
+	        this.skipStartupNic = source["skipStartupNic"];
 	    }
 	}
 	export class Switch {

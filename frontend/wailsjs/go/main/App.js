@@ -38,6 +38,10 @@ export function ApplyPortVLAN(arg1, arg2) {
   return window['go']['main']['App']['ApplyPortVLAN'](arg1, arg2);
 }
 
+export function ApplyTemplate(arg1, arg2) {
+  return window['go']['main']['App']['ApplyTemplate'](arg1, arg2);
+}
+
 export function ApplyVLAN(arg1, arg2) {
   return window['go']['main']['App']['ApplyVLAN'](arg1, arg2);
 }
@@ -102,6 +106,10 @@ export function DeleteSwitches(arg1) {
   return window['go']['main']['App']['DeleteSwitches'](arg1);
 }
 
+export function DeleteTemplate(arg1) {
+  return window['go']['main']['App']['DeleteTemplate'](arg1);
+}
+
 export function DiscoverCloud(arg1) {
   return window['go']['main']['App']['DiscoverCloud'](arg1);
 }
@@ -128,6 +136,10 @@ export function FirmwareImages() {
 
 export function ForgetAppPassword() {
   return window['go']['main']['App']['ForgetAppPassword']();
+}
+
+export function GetActiveNIC() {
+  return window['go']['main']['App']['GetActiveNIC']();
 }
 
 export function GetBackup(arg1, arg2) {
@@ -168,6 +180,10 @@ export function InspectImport(arg1, arg2) {
 
 export function LastUpdateCheck() {
   return window['go']['main']['App']['LastUpdateCheck']();
+}
+
+export function ListNICs() {
+  return window['go']['main']['App']['ListNICs']();
 }
 
 export function LockNow() {
@@ -242,6 +258,10 @@ export function PreviewPortVLAN(arg1, arg2) {
   return window['go']['main']['App']['PreviewPortVLAN'](arg1, arg2);
 }
 
+export function PreviewTemplate(arg1, arg2) {
+  return window['go']['main']['App']['PreviewTemplate'](arg1, arg2);
+}
+
 export function PreviewVLAN(arg1, arg2) {
   return window['go']['main']['App']['PreviewVLAN'](arg1, arg2);
 }
@@ -274,6 +294,10 @@ export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
+export function SaveConfigTextAsTemplate(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveConfigTextAsTemplate'](arg1, arg2, arg3);
+}
+
 export function SaveCredential(arg1) {
   return window['go']['main']['App']['SaveCredential'](arg1);
 }
@@ -290,8 +314,24 @@ export function SaveSwitch(arg1) {
   return window['go']['main']['App']['SaveSwitch'](arg1);
 }
 
+export function SaveSwitchAsTemplate(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveSwitchAsTemplate'](arg1, arg2, arg3);
+}
+
+export function SaveTemplate(arg1) {
+  return window['go']['main']['App']['SaveTemplate'](arg1);
+}
+
+export function ScanSubnet(arg1) {
+  return window['go']['main']['App']['ScanSubnet'](arg1);
+}
+
 export function SearchConfigs(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchConfigs'](arg1, arg2, arg3);
+}
+
+export function SetActiveNIC(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetActiveNIC'](arg1, arg2, arg3);
 }
 
 export function SetAppPassword(arg1, arg2) {
@@ -312,6 +352,10 @@ export function StartUpgrade(arg1, arg2, arg3) {
 
 export function StartupNotice() {
   return window['go']['main']['App']['StartupNotice']();
+}
+
+export function Templates() {
+  return window['go']['main']['App']['Templates']();
 }
 
 export function TestSwitch(arg1) {

@@ -5,6 +5,7 @@ import {firmware} from '../models';
 import {main} from '../models';
 import {aruba} from '../models';
 import {store} from '../models';
+import {netbind} from '../models';
 import {sshopen} from '../models';
 
 export function AddCloud(arg1:string,arg2:Array<core.CloudPick>):Promise<number>;
@@ -24,6 +25,8 @@ export function ApplyPortNames(arg1:string,arg2:aruba.PortNameChange):Promise<ar
 export function ApplyPortPoE(arg1:string,arg2:aruba.PortPoEChange):Promise<aruba.ApplyResult>;
 
 export function ApplyPortVLAN(arg1:string,arg2:aruba.PortVLANChange):Promise<aruba.ApplyResult>;
+
+export function ApplyTemplate(arg1:string,arg2:aruba.TemplateApplyRequest):Promise<aruba.ApplyResult>;
 
 export function ApplyVLAN(arg1:string,arg2:aruba.VLANChange):Promise<aruba.ApplyResult>;
 
@@ -57,6 +60,8 @@ export function DeleteSwitch(arg1:string):Promise<void>;
 
 export function DeleteSwitches(arg1:Array<string>):Promise<void>;
 
+export function DeleteTemplate(arg1:string):Promise<void>;
+
 export function DiscoverCloud(arg1:string):Promise<Array<core.CloudSite>>;
 
 export function DownloadFirmware(arg1:string):Promise<firmware.Image>;
@@ -70,6 +75,8 @@ export function FindMAC(arg1:string):Promise<Array<core.MACHit>>;
 export function FirmwareImages():Promise<Array<firmware.Image>>;
 
 export function ForgetAppPassword():Promise<void>;
+
+export function GetActiveNIC():Promise<string>;
 
 export function GetBackup(arg1:string,arg2:string):Promise<string>;
 
@@ -90,6 +97,8 @@ export function ImportData(arg1:string,arg2:string,arg3:string):Promise<store.Im
 export function InspectImport(arg1:string,arg2:string):Promise<store.BundleInfo>;
 
 export function LastUpdateCheck():Promise<main.UpdateInfo>;
+
+export function ListNICs():Promise<Array<netbind.NICInfo>>;
 
 export function LockNow():Promise<void>;
 
@@ -127,6 +136,8 @@ export function PreviewPortPoE(arg1:string,arg2:aruba.PortPoEChange):Promise<Arr
 
 export function PreviewPortVLAN(arg1:string,arg2:aruba.PortVLANChange):Promise<Array<string>>;
 
+export function PreviewTemplate(arg1:string,arg2:aruba.TemplateApplyRequest):Promise<Array<string>>;
+
 export function PreviewVLAN(arg1:string,arg2:aruba.VLANChange):Promise<Array<string>>;
 
 export function Refresh(arg1:string):Promise<void>;
@@ -143,6 +154,8 @@ export function SSHClients():Promise<Array<sshopen.Client>>;
 
 export function SaveConfig(arg1:string):Promise<void>;
 
+export function SaveConfigTextAsTemplate(arg1:string,arg2:string,arg3:string):Promise<aruba.SwitchTemplate>;
+
 export function SaveCredential(arg1:store.Credential):Promise<store.Credential>;
 
 export function SaveLayout(arg1:Record<string, store.Point>):Promise<void>;
@@ -151,7 +164,15 @@ export function SaveSettings(arg1:store.Settings):Promise<void>;
 
 export function SaveSwitch(arg1:store.Switch):Promise<store.Switch>;
 
+export function SaveSwitchAsTemplate(arg1:string,arg2:string,arg3:string):Promise<aruba.SwitchTemplate>;
+
+export function SaveTemplate(arg1:aruba.SwitchTemplate):Promise<aruba.SwitchTemplate>;
+
+export function ScanSubnet(arg1:string):Promise<Array<netbind.DiscoveredHost>>;
+
 export function SearchConfigs(arg1:string,arg2:boolean,arg3:string):Promise<Array<core.ConfigSearchHit>>;
+
+export function SetActiveNIC(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetAppPassword(arg1:string,arg2:string):Promise<void>;
 
@@ -162,6 +183,8 @@ export function SetFirmwareHold(arg1:Array<string>,arg2:boolean):Promise<void>;
 export function StartUpgrade(arg1:Array<string>,arg2:string,arg3:boolean):Promise<Array<core.Job>>;
 
 export function StartupNotice():Promise<string>;
+
+export function Templates():Promise<Array<aruba.SwitchTemplate>>;
 
 export function TestSwitch(arg1:store.Switch):Promise<string>;
 

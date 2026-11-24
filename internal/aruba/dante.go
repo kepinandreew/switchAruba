@@ -19,6 +19,7 @@ type DanteProfileChange struct {
 	IGMPSnooping   bool     `json:"igmpSnooping"`
 	IGMPQuerier    bool     `json:"igmpQuerier"`
 	DisableEEE     bool     `json:"disableEee"`
+	JumboMTU       bool     `json:"jumboMtu,omitempty"`
 	Save           bool     `json:"save"`
 }
 
@@ -27,7 +28,7 @@ func BuildDanteProfileCommands(f Family, c DanteProfileChange) ([]string, error)
 	if f == FamilyInstantOn {
 		return nil, fmt.Errorf("Dante AV profile changes over SSH aren't supported on Instant On switches; use the Instant On portal or web UI")
 	}
-	if !c.GlobalTrust && !c.PortTrust && !c.DSCPMap && !c.StrictSchedule && !c.IGMPSnooping && !c.IGMPQuerier && !c.DisableEEE {
+	if !c.GlobalTrust && !c.PortTrust && !c.DSCPMap && !c.StrictSchedule && !c.IGMPSnooping && !c.IGMPQuerier && !c.DisableEEE && !c.JumboMTU {
 		return nil, fmt.Errorf("select at least one Dante AV profile setting to apply")
 	}
 	for _, p := range c.Ports {
@@ -84,7 +85,7 @@ func BuildDanteProfileCommands(f Family, c DanteProfileChange) ([]string, error)
 		}
 		for _, p := range c.Ports {
 			needPortTrust := c.PortTrust
-			if !needPortTrust && !c.DisableEEE {
+			if !needPortTrust && !c.DisableEEE && !c.JumboMTU {
 				continue
 			}
 			cmds = append(cmds, "interface "+p)
@@ -93,6 +94,9 @@ func BuildDanteProfileCommands(f Family, c DanteProfileChange) ([]string, error)
 			}
 			if c.DisableEEE {
 				cmds = append(cmds, "no energy-efficient-ethernet")
+			}
+			if c.JumboMTU {
+				cmds = append(cmds, "mtu 9198")
 			}
 			cmds = append(cmds, "exit")
 		}
@@ -107,14 +111,21 @@ func BuildDanteProfileCommands(f Family, c DanteProfileChange) ([]string, error)
 				"qos dscp-map 101110 priority 6",
 			)
 		}
-		if c.IGMPSnooping || c.IGMPQuerier {
-			for _, vid := range vlans {
+		if c.IGMPSnooping || c.IGMPQuerier || c.JumboMTU {
+			targetVLANs := vlans
+			if len(targetVLANs) == 0 && c.JumboMTU {
+				targetVLANs = []int{1}
+			}
+			for _, vid := range targetVLANs {
 				cmds = append(cmds, fmt.Sprintf("vlan %d", vid))
 				if c.IGMPSnooping {
 					cmds = append(cmds, "ip igmp")
 				}
 				if c.IGMPQuerier {
 					cmds = append(cmds, "ip igmp querier")
+				}
+				if c.JumboMTU {
+					cmds = append(cmds, "jumbo")
 				}
 				cmds = append(cmds, "exit")
 			}

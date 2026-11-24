@@ -15,6 +15,8 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+
+	"myswitch/internal/netbind"
 )
 
 // UploadProgress reports how many bytes have gone out so far.
@@ -64,8 +66,7 @@ func dialClient(ctx context.Context, o Options) (*ssh.Client, error) {
 	}
 	var seen string
 	addr := net.JoinHostPort(o.Host, strconv.Itoa(o.Port))
-	d := net.Dialer{Timeout: o.Timeout}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := netbind.DialContext(ctx, "tcp", addr, o.Timeout)
 	if err != nil {
 		return nil, err
 	}

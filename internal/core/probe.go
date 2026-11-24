@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"myswitch/internal/aruba"
+	"myswitch/internal/netbind"
 )
 
 var probeTimeout = 3 * time.Second
@@ -21,7 +22,7 @@ var telnetPortNum, httpPortNum = "23", "80"
 // probePort reports "open" when something accepts a TCP connection, "closed"
 // when the switch refuses it, and "filtered" when nothing answers in time.
 func probePort(host, port string) string {
-	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), probeTimeout)
+	c, err := netbind.DialTimeout("tcp", net.JoinHostPort(host, port), probeTimeout)
 	if err == nil {
 		c.Close()
 		return "open"
@@ -41,7 +42,7 @@ func probeHTTP(host, port string) string {
 	if st != "open" {
 		return st
 	}
-	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), probeTimeout)
+	c, err := netbind.DialTimeout("tcp", net.JoinHostPort(host, port), probeTimeout)
 	if err != nil {
 		return st
 	}
